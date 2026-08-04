@@ -75,30 +75,31 @@
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     // DOM Elements
-    const authForm = document.getElementById('auth-form');
-    const userDashboard = document.getElementById('user-dashboard');
-    const userEmailSpan = document.getElementById('user-email');
-    const msgDiv = document.getElementById('msg');
-    
-    let chart = null;
-    let lineSeries = null;
+const authForm = document.getElementById('auth-form');
+const userDashboard = document.getElementById('user-dashboard');
+const userEmailSpan = document.getElementById('user-email');
+const msgDiv = document.getElementById('msg');
 
-    // THEO DÕI TRẠNG THÁI ĐĂNG NHẬP
-    supabaseClient.auth.onAuthStateChange((event, session) => {
-      if (session) {
-        authForm.classList.add('hidden');
-        userDashboard.classList.remove('hidden');
-        userEmailSpan.innerText = session.user.email;
-        msgDiv.innerText = '';
-        
-        // Tự động tải dữ liệu & vẽ chart khi đã xác thực
-        loadZigzagChart('BTCUSDT');
-      } else {
-        authForm.classList.remove('hidden');
-        userDashboard.classList.add('hidden');
-        msgDiv.innerText = '';
-      }
-    });
+let chart = null;
+let lineSeries = null;
+
+// THEO DÕI TRẠNG THÁI ĐĂNG NHẬP
+supabaseClient.auth.onAuthStateChange(async (event, session) => {
+  if (session) {
+    // 1. Hiển thị Dashboard trước để khung #chart-container có kích thước thật
+    authForm.classList.add('hidden');
+    userDashboard.classList.remove('hidden');
+    userEmailSpan.innerText = session.user.email;
+    msgDiv.innerText = '';
+    
+    // 2. Tải và vẽ Chart sau khi khung đã hiển thị
+    await loadZigzagChart('BTCUSDT');
+  } else {
+    authForm.classList.remove('hidden');
+    userDashboard.classList.add('hidden');
+    msgDiv.innerText = '';
+  }
+});
 
     // 1. XỬ LÝ ĐĂNG NHẬP
     async function handleSignIn() {
@@ -151,74 +152,77 @@
     }
 
     // 4. TẢI DỮ LIỆU TỪ SUPABASE & VẼ BIỂU ĐỒ ZIGZAG
-    async function loadZigzagChart(symbol = 'BTCUSDT') {
+// HÀM VẼ BIỂU ĐỒ ZIGZAG
+async function loadZigzagChart(symbol = 'BTCUSDT') {
   const container = document.getElementById('chart-container');
-  
-  // 1. Khởi tạo Chart nếu chưa có
-  if (!chart) {
-    chart = LightweightCharts.createChart(container, {
-      width: container.clientWidth,
-      height: 450,
-      layout: { backgroundColor: '#ffffff', textColor: '#333' },
-      grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
-      timeScale: { timeVisible: true, secondsVisible: true }
-    });
-    
-    lineSeries = chart.addLineSeries({
-      color: '#2962FF',
-      lineWidth: 2,
-      crosshairMarkerVisible: true
-    });
+  if (!container) return;
+
+  // Xóa chart cũ nếu có để tránh trùng lặp
+  if (chart) {
+    chart.remove();
+    chart = null;
   }
 
-  // 2. Truy vấn dữ liệu từ Supabase
+  // Khởi tạo Chart với kích thước thực tế của thẻ container
+  chart = LightweightCharts.createChart(container, {
+    width: container.clientWidth || 800,
+    height: 450,
+    layout: {
+      backgroundColor: '#ffffff',
+      textColor: '#333333',
+    },
+    grid: {
+      vertLines: { color: '#f0f0f0' },
+      horzLines: { color: '#f0f0f0' },
+    },
+    timeScale: {
+      timeVisible: true,
+      secondsVisible: false,
+    },
+  });
+
+  lineSeries = chart.addLineSeries({
+    color: '#2962FF',
+    lineWidth: 2,
+  });
+
+  // Truy vấn dữ liệu từ Supabase (Đã sắp xếp tăng dần theo thời gian)
   const { data, error } = await supabaseClient
     .from('zigzag_data')
     .select('*')
     .eq('symbol', symbol)
     .order('time', { ascending: true });
 
-  console.log('--- DỮ LIỆU TỪ SUPABASE ---', data);
-
-  if (error) {
-    console.error('Lỗi khi tải zigzag_data:', error.message);
-    alert('Lỗi lấy dữ liệu: ' + error.message);
+  if (error || !data || data.length === 0) {
+    console.warn('Lỗi hoặc không tìm thấy dữ liệu:', error);
     return;
   }
 
-  if (!data || data.length === 0) {
-    console.warn('Không tìm thấy bản ghi nào với symbol = ' + symbol);
-    return;
-  }
-
-  // 3. Chuẩn hóa dữ liệu cho Lightweight Charts
+  // Chuẩn hóa dữ liệu Unix Timestamp
   const chartData = data.map(item => {
-    // Ép kiểu time về Unix Timestamp dạng GIÂY (số)
-    let timeInSeconds;
-    if (typeof item.time === 'number') {
-      timeInSeconds = item.time > 10000000000 ? Math.floor(item.time / 1000) : item.time;
-    } else {
-      timeInSeconds = Math.floor(new Date(item.time).getTime() / 1000);
-    }
-
+    let timeInSeconds = Math.floor(new Date(item.time).getTime() / 1000);
     return {
       time: timeInSeconds,
       value: parseFloat(item.value)
     };
   });
 
-  // Loại bỏ các phần tử trùng thời gian (nếu có) để tránh lỗi chart
+  // Lọc bỏ mốc thời gian trùng nhau (nếu có)
   const uniqueChartData = chartData.filter((item, index, self) =>
     index === self.findIndex((t) => t.time === item.time)
   );
 
-  console.log('--- DỮ LIỆU ĐÃ CHUẨN HÓA VẼ CHART ---', uniqueChartData);
-
-  // 4. Đẩy dữ liệu vào đường line
+  // Đẩy dữ liệu vào đường line và fit lại tầm nhìn của Chart
   lineSeries.setData(uniqueChartData);
   chart.timeScale().fitContent();
-}
-  
-  </script>
+
+  // Đảm bảo responsive khi thay đổi kích thước màn hình
+  window.addEventListener('resize', () => {
+    if (chart && container) {
+      chart.applyOptions({ width: container.clientWidth });
+    }
+  });
+}   
+   </script>
 </body>
 </html>
