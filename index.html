@@ -3,213 +3,260 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trading Light Webview - Dashboard</title>
+  <title>Trading Light Webview Pro - OHLC & Peak Markers</title>
   
+  <!-- Supabase JS SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  
+  <!-- Lightweight Charts v3.8.0 -->
   <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
 
   <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 20px; background-color: #f8f9fa; }
-    .card { background: #fff; border: 1px solid #e0e0e0; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    input { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
-    button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; font-weight: bold; }
-    button:hover { background-color: #0056b3; }
-    .btn-secondary { background-color: #6c757d; }
-    .hidden { display: none !important; }
-    #msg { margin-top: 15px; font-weight: bold; word-break: break-all; }
-    
-    /* Khung chứa Chart có kích thước rõ ràng */
-    #chart-container { 
-      width: 100%; 
-      height: 450px; 
-      background: #ffffff; 
-      border: 1px solid #e0e0e0; 
-      border-radius: 4px; 
-      margin-top: 15px; 
-      position: relative;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+      background-color: #131722; 
+      color: #d1d4dc; 
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
+    .navbar {
+      background-color: #1e222d;
+      border-bottom: 1px solid #2a2e39;
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand { font-size: 15px; font-weight: bold; color: #2962ff; }
+    .auth-container {
+      max-width: 360px;
+      margin: auto;
+      padding: 24px;
+      background: #1e222d;
+      border: 1px solid #2a2e39;
+      border-radius: 8px;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      background: #131722;
+      border: 1px solid #363a45;
+      border-radius: 4px;
+      color: #fff;
+    }
+    button.btn-primary {
+      width: 100%;
+      padding: 10px;
+      background: #2962ff;
+      border: none;
+      color: white;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .chart-wrapper {
+      flex: 1;
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    #chart-container { width: 100%; height: 100%; }
+    .hidden { display: none !important; }
+    #msg { color: #f44336; font-size: 13px; margin-top: 8px; text-align: center; }
   </style>
 </head>
 <body>
 
-  <h2>Trading Light Webview</h2>
+  <div class="navbar">
+    <div class="brand">📈 TRADING LIGHT - ZIGZAG PEAKS & OHLC</div>
+    <div id="user-status" class="hidden">
+      <span id="user-email" style="font-size: 13px; color: #787b86; margin-right: 10px;"></span>
+      <button onclick="handleSignOut()" style="background:#f44336; border:none; color:#fff; padding:4px 8px; border-radius:4px; cursor:pointer;">Đăng xuất</button>
+    </div>
+  </div>
 
-  <div id="auth-form" class="card">
-    <h3 id="form-title">Đăng nhập / Đăng ký</h3>
-    <input type="email" id="email" placeholder="Nhập Email của bạn...">
-    <input type="password" id="password" placeholder="Nhập Mật khẩu...">
-    
-    <button onclick="handleSignIn()">Đăng Nhập</button>
-    <button onclick="handleSignUp()" class="btn-secondary">Đăng Ký Tài Khoản Mới</button>
-    
+  <!-- Form Login -->
+  <div id="auth-screen" class="auth-container">
+    <h3 style="margin-bottom: 12px; text-align: center;">Đăng Nhập</h3>
+    <input type="email" id="email" placeholder="Email...">
+    <input type="password" id="password" placeholder="Mật khẩu...">
+    <button class="btn-primary" onclick="handleSignIn()">Đăng Nhập</button>
     <div id="msg"></div>
   </div>
 
-  <div id="user-dashboard" class="card hidden">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-      <div>Chào mừng: <b id="user-email"></b></div>
-      <button onclick="handleSignOut()" class="btn-secondary" style="width: auto; padding: 5px 15px; margin: 0;">Đăng xuất</button>
-    </div>
-
-    <h4 style="margin: 15px 0 5px 0;">Biểu đồ Zigzag BTCUSDT</h4>
+  <!-- Screen chứa Chart -->
+  <div id="dashboard-screen" class="chart-wrapper hidden">
     <div id="chart-container"></div>
   </div>
 
   <script>
     // ⚙️ CẤU HÌNH SUPABASE
-      const SUPABASE_URL = 'https://tezauanmyuxugsprdegg.supabase.co';
+    const SUPABASE_URL = 'https://tezauanmyuxugsprdegg.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_HaqgO14NHvqy0cWbiI1RzA_KKOPKiXZ';
-    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-    const authForm = document.getElementById('auth-form');
-    const userDashboard = document.getElementById('user-dashboard');
-    const userEmailSpan = document.getElementById('user-email');
-    const msgDiv = document.getElementById('msg');
+ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     let chart = null;
-    let lineSeries = null;
+    let candlestickSeries = null;
+    let zigzagLineSeries = null;
 
-    // THEO DÕI TRẠNG THÁI ĐĂNG NHẬP
+    // THEO DÕI LOGGED IN
     supabaseClient.auth.onAuthStateChange((event, session) => {
-      if (session) {
-        authForm.classList.add('hidden');
-        userDashboard.classList.remove('hidden');
-        userEmailSpan.innerText = session.user.email;
-        msgDiv.innerText = '';
-        
-        // Chờ 100ms để DOM tính toán chính xác width/height trước khi vẽ
-        setTimeout(() => {
-          loadZigzagChart('BTCUSDT');
-        }, 100);
+      const authScreen = document.getElementById('auth-screen');
+      const dashboardScreen = document.getElementById('dashboard-screen');
+      const userStatus = document.getElementById('user-status');
+      const userEmail = document.getElementById('user-email');
 
+      if (session) {
+        authScreen.classList.add('hidden');
+        dashboardScreen.classList.remove('hidden');
+        userStatus.classList.remove('hidden');
+        userEmail.innerText = session.user.email;
+        
+        setTimeout(() => renderAdvancedChart('BTCUSDT'), 150);
       } else {
-        authForm.classList.remove('hidden');
-        userDashboard.classList.add('hidden');
-        msgDiv.innerText = '';
-        if (chart) {
-          chart.remove();
-          chart = null;
-        }
+        authScreen.classList.remove('hidden');
+        dashboardScreen.classList.add('hidden');
+        userStatus.classList.add('hidden');
       }
     });
 
-    // 1. ĐĂNG KÝ
-    async function handleSignUp() {
-      const email = document.getElementById('email').value;
-      const password = document.getElementById('password').value;
-      if(!email || !password) return alert('Vui lòng nhập Email và Mật khẩu');
-      
-      msgDiv.style.color = 'blue';
-      msgDiv.innerText = 'Đang đăng ký...';
-
-      const { data, error } = await supabaseClient.auth.signUp({ email, password });
-      if (error) {
-        msgDiv.style.color = 'red';
-        msgDiv.innerText = 'Lỗi: ' + error.message;
-      } else {
-        msgDiv.style.color = 'green';
-        msgDiv.innerText = 'Đăng ký thành công! Hãy đăng nhập.';
-      }
-    }
-
-    // 2. ĐĂNG NHẬP
     async function handleSignIn() {
       const email = document.getElementById('email').value;
       const password = document.getElementById('password').value;
-      if(!email || !password) return alert('Vui lòng nhập Email và Mật khẩu');
+      const msgDiv = document.getElementById('msg');
+      msgDiv.innerText = 'Đang xác thực...';
 
-      msgDiv.style.color = 'blue';
-      msgDiv.innerText = 'Đang đăng nhập...';
-
-      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-      if (error) {
-        msgDiv.style.color = 'red';
-        msgDiv.innerText = 'Đăng nhập thất bại: ' + error.message;
-      }
+      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) msgDiv.innerText = 'Lỗi: ' + error.message;
     }
 
-    // 3. ĐĂNG XUẤT
     async function handleSignOut() {
       await supabaseClient.auth.signOut();
     }
 
-    // 4. HÀM TẢI & VẼ BIỂU ĐỒ
-    async function loadZigzagChart(symbol = 'BTCUSDT') {
+    // 🚀 HÀM VẼ OHLC + ZIGZAG LINE + PEAK MARKERS
+    async function renderAdvancedChart(symbol) {
       const container = document.getElementById('chart-container');
       if (!container) return;
 
-      // Xóa instance chart cũ nếu có
       if (chart) {
         chart.remove();
         chart = null;
       }
 
-      // Khởi tạo Chart
+      // 1. Tạo Khung Chart Dark Theme
       chart = LightweightCharts.createChart(container, {
-        width: container.clientWidth || 800,
-        height: 450,
-        layout: {
-          backgroundColor: '#ffffff',
-          textColor: '#333333',
-        },
-        grid: {
-          vertLines: { color: '#f0f0f0' },
-          horzLines: { color: '#f0f0f0' },
-        },
-        timeScale: {
-          timeVisible: true,
-          secondsVisible: false,
-        },
+        width: container.clientWidth,
+        height: container.clientHeight,
+        layout: { backgroundColor: '#131722', textColor: '#d1d4dc' },
+        grid: { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2a2e39' },
+        rightPriceScale: { borderColor: '#2a2e39' }
       });
 
-      lineSeries = chart.addLineSeries({
-        color: '#2962FF',
+      // 2. Lớp Layer 1: Nến Candlestick (OHLC)
+      candlestickSeries = chart.addCandlestickSeries({
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        borderVisible: false,
+        wickUpColor: '#26a69a',
+        wickDownColor: '#ef5350',
+      });
+
+      // 3. Lớp Layer 2: Đường Zigzag Nối Đỉnh Đáy
+      zigzagLineSeries = chart.addLineSeries({
+        color: '#f0b90b', // Màu vàng
         lineWidth: 2,
+        crosshairMarkerVisible: false,
       });
 
-      // Lấy dữ liệu từ Supabase
+      // 4. Lấy dữ liệu từ Supabase
       const { data, error } = await supabaseClient
         .from('zigzag_data')
         .select('*')
         .eq('symbol', symbol)
         .order('time', { ascending: true });
 
-      if (error) {
-        console.error('Lỗi khi lấy dữ liệu Supabase:', error);
+      if (error || !data || data.length === 0) {
+        console.warn('Chưa có dữ liệu zigzag_data');
         return;
       }
 
-      if (!data || data.length === 0) {
-        console.warn('Không có dữ liệu cho symbol:', symbol);
-        return;
-      }
+      // Xử lý dữ liệu
+      const candleData = [];
+      const zigzagData = [];
+      const markers = [];
 
-      // Chuẩn hóa dữ liệu
-      const chartData = data.map(item => {
-        let timeInSeconds = Math.floor(new Date(item.time).getTime() / 1000);
-        return {
+      data.forEach((item, index) => {
+        const timeInSeconds = Math.floor(new Date(item.time).getTime() / 1000);
+        const val = parseFloat(item.value);
+
+        // Tạo Nến Giả Lập (Mẫu) xung quanh giá Zigzag để xem nến OHLC
+        // (Nếu DB bạn có sẵn open, high, low, close thì thay vào đây)
+        const openPrice = index > 0 ? parseFloat(data[index - 1].value) : val * 0.99;
+        const closePrice = val;
+        const highPrice = Math.max(openPrice, closePrice) + (val * 0.002);
+        const lowPrice = Math.min(openPrice, closePrice) - (val * 0.002);
+
+        candleData.push({
           time: timeInSeconds,
-          value: parseFloat(item.value)
-        };
+          open: openPrice,
+          high: highPrice,
+          low: lowPrice,
+          close: closePrice
+        });
+
+        // Dữ liệu cho Đường Zigzag
+        zigzagData.push({
+          time: timeInSeconds,
+          value: val
+        });
+
+        // 5. Mũi tên & Note tại điểm PEAK / BOTTOM
+        if (item.is_peak === true) {
+          markers.push({
+            time: timeInSeconds,
+            position: 'aboveBar',
+            color: '#ef5350', // Đỏ cho Đỉnh (Peak)
+            shape: 'arrowDown',
+            text: `PEAK: ${val.toLocaleString()}`
+          });
+        } else if (item.is_peak === false) {
+          markers.push({
+            time: timeInSeconds,
+            position: 'belowBar',
+            color: '#26a69a', // Xanh cho Đáy (Bottom)
+            shape: 'arrowUp',
+            text: `BOTTOM: ${val.toLocaleString()}`
+          });
+        }
       });
 
       // Lọc trùng thời gian
-      const uniqueChartData = chartData.filter((item, index, self) =>
-        index === self.findIndex((t) => t.time === item.time)
-      );
+      const uniqueCandles = candleData.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
+      const uniqueZigzag = zigzagData.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
+      const uniqueMarkers = markers.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
 
-      // Nối dữ liệu vào đường line
-      lineSeries.setData(uniqueChartData);
+      // Đưa Dữ Liệu Lên Chart
+      candlestickSeries.setData(uniqueCandles);
+      zigzagLineSeries.setData(uniqueZigzag);
+      
+      // Đánh dấu Mũi tên & Ghi chú Note lên Nến
+      candlestickSeries.setMarkers(uniqueMarkers);
+
       chart.timeScale().fitContent();
-
-      // Tự điều chỉnh khi co giãn màn hình
-      window.addEventListener('resize', () => {
-        if (chart && container) {
-          chart.applyOptions({ width: container.clientWidth });
-        }
-      });
     }
+
+    // Responsive Chart
+    window.addEventListener('resize', () => {
+      const container = document.getElementById('chart-container');
+      if (chart && container) {
+        chart.resize(container.clientWidth, container.clientHeight);
+      }
+    });
   </script>
 </body>
 </html>
