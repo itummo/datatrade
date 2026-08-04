@@ -10,14 +10,15 @@
   <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 
   <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 20px; }
-    .card { border: 1px solid #ccc; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-    input { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; }
-    button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; }
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 20px; background-color: #f8f9fa; }
+    .card { background: #fff; border: 1px solid #e0e0e0; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    input { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; font-weight: bold; }
     button:hover { background-color: #0056b3; }
     .btn-secondary { background-color: #6c757d; }
+    .btn-secondary:hover { background-color: #5a6268; }
     .hidden { display: none; }
-    #msg { margin-top: 15px; color: red; font-weight: bold; }
+    #msg { margin-top: 15px; color: #dc3545; font-weight: bold; word-break: break-all; }
     
     /* Khung chứa Biểu đồ TradingView */
     #chart-container {
@@ -37,39 +38,39 @@
 </head>
 <body>
 
-  <h2>Trading Light Webview</h2>
+  <h2 style="text-align: center; color: #333;">Trading Light Webview</h2>
 
-  <div id="auth-form" class="card" style="max-width: 400px; margin: 0 auto;">
-    <h3>Đăng nhập hệ thống</h3>
-    <input type="email" id="email" placeholder="Nhập Email..." required />
+  <div id="auth-form" class="card" style="max-width: 400px; margin: 40px auto;">
+    <h3 style="margin-top:0; text-align: center;">Đăng nhập / Đăng ký</h3>
+    <input type="email" id="email" placeholder="Nhập Email của bạn..." required />
     <input type="password" id="password" placeholder="Nhập Mật khẩu..." required />
     
     <button onclick="handleSignIn()">Đăng nhập</button>
-    <button onclick="handleSignUp()" class="btn-secondary">Đăng ký mới</button>
+    <button onclick="handleSignUp()" class="btn-secondary">Đăng ký tài khoản</button>
   </div>
 
   <div id="user-dashboard" class="hidden">
     <div class="card">
       <div class="header-dashboard">
         <div>
-          <span>Xin chào: <b id="user-email" style="color: green;"></b></span>
+          <span>Tài khoản: <b id="user-email" style="color: #28a745;"></b></span>
         </div>
         <button onclick="handleSignOut()" style="background-color: #dc3545; width: auto; padding: 8px 16px;">Đăng xuất</button>
       </div>
     </div>
 
     <div class="card">
-      <h3>📈 Biểu đồ Zigzag (Symbol: BTCUSDT)</h3>
+      <h3 style="margin-top:0;">📈 Biểu đồ Zigzag (Symbol: BTCUSDT)</h3>
       <div id="chart-container"></div>
     </div>
   </div>
 
-  <div id="msg"></div>
+  <div id="msg" style="text-align: center;"></div>
 
   <script>
-    // ⚠️ ĐIỀN THÔNG TIN SUPABASE CỦA BẠN VÀO ĐÂY
-    const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
-    const SUPABASE_KEY = 'YOUR_ANON_PUBLIC_KEY';
+    // ⚙️ THÔNG TIN SUPABASE ĐÃ ĐƯỢC CẤU HÌNH
+    const SUPABASE_URL = 'https://tezauanmyuxugsprdegg.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_HaqgO14NHvqy0cWbiI1RzA_KKOPKiXZ';
 
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -90,7 +91,7 @@
         userEmailSpan.innerText = session.user.email;
         msgDiv.innerText = '';
         
-        // Tự động tải dữ liệu & vẽ chart khi đã đăng nhập
+        // Tự động tải dữ liệu & vẽ chart khi đã xác thực
         loadZigzagChart('BTCUSDT');
       } else {
         authForm.classList.remove('hidden');
@@ -99,83 +100,101 @@
       }
     });
 
-    // 1. ĐĂNG NHẬP / ĐĂNG KÝ / ĐĂNG XUẤT
+    // 1. XỬ LÝ ĐĂNG NHẬP
     async function handleSignIn() {
       const email = document.getElementById('email').value;
       const password = document.getElementById('password').value;
-      msgDiv.style.color = 'blue';
-      msgDiv.innerText = 'Đang xác thực...';
+      
+      if (!email || !password) {
+        msgDiv.style.color = '#dc3545';
+        msgDiv.innerText = 'Vui lòng nhập đầy đủ Email và Mật khẩu!';
+        return;
+      }
+
+      msgDiv.style.color = '#007bff';
+      msgDiv.innerText = 'Đang đăng nhập...';
 
       const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
       if (error) {
-        msgDiv.style.color = 'red';
+        msgDiv.style.color = '#dc3545';
         msgDiv.innerText = 'Đăng nhập thất bại: ' + error.message;
       }
     }
 
+    // 2. XỬ LÝ ĐĂNG KÝ
     async function handleSignUp() {
       const email = document.getElementById('email').value;
       const password = document.getElementById('password').value;
+
+      if (!email || !password) {
+        msgDiv.style.color = '#dc3545';
+        msgDiv.innerText = 'Vui lòng nhập đầy đủ Email và Mật khẩu!';
+        return;
+      }
+
+      msgDiv.style.color = '#007bff';
+      msgDiv.innerText = 'Đang tạo tài khoản...';
+
       const { error } = await supabaseClient.auth.signUp({ email, password });
       if (error) {
-        msgDiv.style.color = 'red';
+        msgDiv.style.color = '#dc3545';
         msgDiv.innerText = 'Lỗi đăng ký: ' + error.message;
       } else {
-        msgDiv.style.color = 'green';
-        msgDiv.innerText = 'Đăng ký thành công! Đang đăng nhập...';
+        msgDiv.style.color = '#28a745';
+        msgDiv.innerText = 'Đăng ký thành công!';
       }
     }
 
+    // 3. XỬ LÝ ĐĂNG XUẤT
     async function handleSignOut() {
       await supabaseClient.auth.signOut();
     }
 
-    // 2. TẢI DỮ LIỆU ZIGZAG TỪ SUPABASE & VẼ BIỂU ĐỒ
+    // 4. TẢI DỮ LIỆU TỪ SUPABASE & VẼ BIỂU ĐỒ ZIGZAG
     async function loadZigzagChart(symbol = 'BTCUSDT') {
       const container = document.getElementById('chart-container');
       
-      // Xóa chart cũ nếu có
+      // Khởi tạo Chart nếu chưa có
       if (!chart) {
         chart = LightweightCharts.createChart(container, {
           layout: { backgroundColor: '#ffffff', textColor: '#333' },
-          grid: { vertLines: { color: '#eee' }, horzLines: { color: '#eee' } },
+          grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
           timeScale: { timeVisible: true, secondsVisible: false }
         });
         
-        // Đường Zigzag
         lineSeries = chart.addLineSeries({
           color: '#2962FF',
           lineWidth: 2,
         });
       }
 
-      // Tải dữ liệu từ Supabase (Sắp xếp theo thời gian tăng dần)
+      // Lấy dữ liệu từ bảng zigzag_data (sắp xếp tăng dần theo thời gian)
       const { data, error } = await supabaseClient
         .from('zigzag_data')
         .select('time, value, is_peak')
         .eq('symbol', symbol)
         .order('time', { ascending: true });
 
+      console.log('Dữ liệu nhận từ Supabase:', data);
+
       if (error) {
-        console.error('Lỗi lấy dữ liệu:', error);
+        console.error('Lỗi khi tải zigzag_data:', error.message);
         return;
       }
 
       if (!data || data.length === 0) {
-        console.warn('Chưa có dữ liệu Zigzag nào trong CSDL!');
+        console.warn('Không có dữ liệu trong bảng zigzag_data với symbol ' + symbol);
         return;
       }
 
-      // Chuyển đổi định dạng timestamp cho TradingView (Unix timestamp in seconds)
+      // Định dạng mốc thời gian sang Unix timestamp (Giây) cho thư viện Chart
       const chartData = data.map(item => ({
         time: Math.floor(new Date(item.time).getTime() / 1000),
-        value: item.value
+        value: Number(item.value)
       }));
 
-      // Đưa dữ liệu vào Chart
+      // Đưa dữ liệu lên biểu đồ
       lineSeries.setData(chartData);
-      
-      // Tự động căn chỉnh kích thước khung nhìn
       chart.timeScale().fitContent();
     }
   </script>
