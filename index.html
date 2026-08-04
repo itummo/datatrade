@@ -7,7 +7,7 @@
   
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   
-  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
 
   <style>
     body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 20px; background-color: #f8f9fa; }
@@ -16,213 +16,201 @@
     button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; font-weight: bold; }
     button:hover { background-color: #0056b3; }
     .btn-secondary { background-color: #6c757d; }
-    .btn-secondary:hover { background-color: #5a6268; }
-    .hidden { display: none; }
-    #msg { margin-top: 15px; color: #dc3545; font-weight: bold; word-break: break-all; }
+    .hidden { display: none !important; }
+    #msg { margin-top: 15px; font-weight: bold; word-break: break-all; }
     
-    /* Khung chứa Biểu đồ TradingView */
-    #chart-container {
-      width: 100%;
-      height: 450px;
-      margin-top: 15px;
-      border: 1px solid #ddd;
-      border-radius: 6px;
+    /* Khung chứa Chart có kích thước rõ ràng */
+    #chart-container { 
+      width: 100%; 
+      height: 450px; 
+      background: #ffffff; 
+      border: 1px solid #e0e0e0; 
+      border-radius: 4px; 
+      margin-top: 15px; 
       position: relative;
-    }
-    .header-dashboard {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
     }
   </style>
 </head>
 <body>
 
-  <h2 style="text-align: center; color: #333;">Trading Light Webview</h2>
+  <h2>Trading Light Webview</h2>
 
-  <div id="auth-form" class="card" style="max-width: 400px; margin: 40px auto;">
-    <h3 style="margin-top:0; text-align: center;">Đăng nhập / Đăng ký</h3>
-    <input type="email" id="email" placeholder="Nhập Email của bạn..." required />
-    <input type="password" id="password" placeholder="Nhập Mật khẩu..." required />
+  <div id="auth-form" class="card">
+    <h3 id="form-title">Đăng nhập / Đăng ký</h3>
+    <input type="email" id="email" placeholder="Nhập Email của bạn...">
+    <input type="password" id="password" placeholder="Nhập Mật khẩu...">
     
-    <button onclick="handleSignIn()">Đăng nhập</button>
-    <button onclick="handleSignUp()" class="btn-secondary">Đăng ký tài khoản</button>
+    <button onclick="handleSignIn()">Đăng Nhập</button>
+    <button onclick="handleSignUp()" class="btn-secondary">Đăng Ký Tài Khoản Mới</button>
+    
+    <div id="msg"></div>
   </div>
 
-  <div id="user-dashboard" class="hidden">
-    <div class="card">
-      <div class="header-dashboard">
-        <div>
-          <span>Tài khoản: <b id="user-email" style="color: #28a745;"></b></span>
-        </div>
-        <button onclick="handleSignOut()" style="background-color: #dc3545; width: auto; padding: 8px 16px;">Đăng xuất</button>
-      </div>
+  <div id="user-dashboard" class="card hidden">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <div>Chào mừng: <b id="user-email"></b></div>
+      <button onclick="handleSignOut()" class="btn-secondary" style="width: auto; padding: 5px 15px; margin: 0;">Đăng xuất</button>
     </div>
 
-    <div class="card">
-      <h3 style="margin-top:0;">📈 Biểu đồ Zigzag (Symbol: BTCUSDT)</h3>
-      <div id="chart-container"></div>
-    </div>
+    <h4 style="margin: 15px 0 5px 0;">Biểu đồ Zigzag BTCUSDT</h4>
+    <div id="chart-container"></div>
   </div>
-
-  <div id="msg" style="text-align: center;"></div>
 
   <script>
-    // ⚙️ THÔNG TIN SUPABASE ĐÃ ĐƯỢC CẤU HÌNH
-    const SUPABASE_URL = 'https://tezauanmyuxugsprdegg.supabase.co';
-    const SUPABASE_KEY = 'sb_publishable_HaqgO14NHvqy0cWbiI1RzA_KKOPKiXZ';
+    // ⚙️ CẤU HÌNH SUPABASE
+    const SUPABASE_URL = 'https://snhyfvogqfndlckfygba.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNuaHlmdm9ncWZuZGxja2Z5Z2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwOTE1MjEsImV4cCI6MjA4NTY2NzUyMX0.oJ66I2rB6tCszqE-6R76i9J4L34s8J1sN9340s1X70M';
 
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // DOM Elements
-const authForm = document.getElementById('auth-form');
-const userDashboard = document.getElementById('user-dashboard');
-const userEmailSpan = document.getElementById('user-email');
-const msgDiv = document.getElementById('msg');
+    const authForm = document.getElementById('auth-form');
+    const userDashboard = document.getElementById('user-dashboard');
+    const userEmailSpan = document.getElementById('user-email');
+    const msgDiv = document.getElementById('msg');
 
-let chart = null;
-let lineSeries = null;
+    let chart = null;
+    let lineSeries = null;
 
-// THEO DÕI TRẠNG THÁI ĐĂNG NHẬP
-supabaseClient.auth.onAuthStateChange(async (event, session) => {
-  if (session) {
-    // 1. Hiển thị Dashboard trước để khung #chart-container có kích thước thật
-    authForm.classList.add('hidden');
-    userDashboard.classList.remove('hidden');
-    userEmailSpan.innerText = session.user.email;
-    msgDiv.innerText = '';
-    
-    // 2. Tải và vẽ Chart sau khi khung đã hiển thị
-    await loadZigzagChart('BTCUSDT');
-  } else {
-    authForm.classList.remove('hidden');
-    userDashboard.classList.add('hidden');
-    msgDiv.innerText = '';
-  }
-});
+    // THEO DÕI TRẠNG THÁI ĐĂNG NHẬP
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        authForm.classList.add('hidden');
+        userDashboard.classList.remove('hidden');
+        userEmailSpan.innerText = session.user.email;
+        msgDiv.innerText = '';
+        
+        // Chờ 100ms để DOM tính toán chính xác width/height trước khi vẽ
+        setTimeout(() => {
+          loadZigzagChart('BTCUSDT');
+        }, 100);
 
-    // 1. XỬ LÝ ĐĂNG NHẬP
+      } else {
+        authForm.classList.remove('hidden');
+        userDashboard.classList.add('hidden');
+        msgDiv.innerText = '';
+        if (chart) {
+          chart.remove();
+          chart = null;
+        }
+      }
+    });
+
+    // 1. ĐĂNG KÝ
+    async function handleSignUp() {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      if(!email || !password) return alert('Vui lòng nhập Email và Mật khẩu');
+      
+      msgDiv.style.color = 'blue';
+      msgDiv.innerText = 'Đang đăng ký...';
+
+      const { data, error } = await supabaseClient.auth.signUp({ email, password });
+      if (error) {
+        msgDiv.style.color = 'red';
+        msgDiv.innerText = 'Lỗi: ' + error.message;
+      } else {
+        msgDiv.style.color = 'green';
+        msgDiv.innerText = 'Đăng ký thành công! Hãy đăng nhập.';
+      }
+    }
+
+    // 2. ĐĂNG NHẬP
     async function handleSignIn() {
       const email = document.getElementById('email').value;
       const password = document.getElementById('password').value;
-      
-      if (!email || !password) {
-        msgDiv.style.color = '#dc3545';
-        msgDiv.innerText = 'Vui lòng nhập đầy đủ Email và Mật khẩu!';
-        return;
-      }
+      if(!email || !password) return alert('Vui lòng nhập Email và Mật khẩu');
 
-      msgDiv.style.color = '#007bff';
+      msgDiv.style.color = 'blue';
       msgDiv.innerText = 'Đang đăng nhập...';
 
-      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
       if (error) {
-        msgDiv.style.color = '#dc3545';
+        msgDiv.style.color = 'red';
         msgDiv.innerText = 'Đăng nhập thất bại: ' + error.message;
       }
     }
 
-    // 2. XỬ LÝ ĐĂNG KÝ
-    async function handleSignUp() {
-      const email = document.getElementById('email').value;
-      const password = document.getElementById('password').value;
-
-      if (!email || !password) {
-        msgDiv.style.color = '#dc3545';
-        msgDiv.innerText = 'Vui lòng nhập đầy đủ Email và Mật khẩu!';
-        return;
-      }
-
-      msgDiv.style.color = '#007bff';
-      msgDiv.innerText = 'Đang tạo tài khoản...';
-
-      const { error } = await supabaseClient.auth.signUp({ email, password });
-      if (error) {
-        msgDiv.style.color = '#dc3545';
-        msgDiv.innerText = 'Lỗi đăng ký: ' + error.message;
-      } else {
-        msgDiv.style.color = '#28a745';
-        msgDiv.innerText = 'Đăng ký thành công!';
-      }
-    }
-
-    // 3. XỬ LÝ ĐĂNG XUẤT
+    // 3. ĐĂNG XUẤT
     async function handleSignOut() {
       await supabaseClient.auth.signOut();
     }
 
-    // 4. TẢI DỮ LIỆU TỪ SUPABASE & VẼ BIỂU ĐỒ ZIGZAG
-// HÀM VẼ BIỂU ĐỒ ZIGZAG
-async function loadZigzagChart(symbol = 'BTCUSDT') {
-  const container = document.getElementById('chart-container');
-  if (!container) return;
+    // 4. HÀM TẢI & VẼ BIỂU ĐỒ
+    async function loadZigzagChart(symbol = 'BTCUSDT') {
+      const container = document.getElementById('chart-container');
+      if (!container) return;
 
-  // Xóa chart cũ nếu có để tránh trùng lặp
-  if (chart) {
-    chart.remove();
-    chart = null;
-  }
+      // Xóa instance chart cũ nếu có
+      if (chart) {
+        chart.remove();
+        chart = null;
+      }
 
-  // Khởi tạo Chart với kích thước thực tế của thẻ container
-  chart = LightweightCharts.createChart(container, {
-    width: container.clientWidth || 800,
-    height: 450,
-    layout: {
-      backgroundColor: '#ffffff',
-      textColor: '#333333',
-    },
-    grid: {
-      vertLines: { color: '#f0f0f0' },
-      horzLines: { color: '#f0f0f0' },
-    },
-    timeScale: {
-      timeVisible: true,
-      secondsVisible: false,
-    },
-  });
+      // Khởi tạo Chart
+      chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth || 800,
+        height: 450,
+        layout: {
+          backgroundColor: '#ffffff',
+          textColor: '#333333',
+        },
+        grid: {
+          vertLines: { color: '#f0f0f0' },
+          horzLines: { color: '#f0f0f0' },
+        },
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+        },
+      });
 
-  lineSeries = chart.addLineSeries({
-    color: '#2962FF',
-    lineWidth: 2,
-  });
+      lineSeries = chart.addLineSeries({
+        color: '#2962FF',
+        lineWidth: 2,
+      });
 
-  // Truy vấn dữ liệu từ Supabase (Đã sắp xếp tăng dần theo thời gian)
-  const { data, error } = await supabaseClient
-    .from('zigzag_data')
-    .select('*')
-    .eq('symbol', symbol)
-    .order('time', { ascending: true });
+      // Lấy dữ liệu từ Supabase
+      const { data, error } = await supabaseClient
+        .from('zigzag_data')
+        .select('*')
+        .eq('symbol', symbol)
+        .order('time', { ascending: true });
 
-  if (error || !data || data.length === 0) {
-    console.warn('Lỗi hoặc không tìm thấy dữ liệu:', error);
-    return;
-  }
+      if (error) {
+        console.error('Lỗi khi lấy dữ liệu Supabase:', error);
+        return;
+      }
 
-  // Chuẩn hóa dữ liệu Unix Timestamp
-  const chartData = data.map(item => {
-    let timeInSeconds = Math.floor(new Date(item.time).getTime() / 1000);
-    return {
-      time: timeInSeconds,
-      value: parseFloat(item.value)
-    };
-  });
+      if (!data || data.length === 0) {
+        console.warn('Không có dữ liệu cho symbol:', symbol);
+        return;
+      }
 
-  // Lọc bỏ mốc thời gian trùng nhau (nếu có)
-  const uniqueChartData = chartData.filter((item, index, self) =>
-    index === self.findIndex((t) => t.time === item.time)
-  );
+      // Chuẩn hóa dữ liệu
+      const chartData = data.map(item => {
+        let timeInSeconds = Math.floor(new Date(item.time).getTime() / 1000);
+        return {
+          time: timeInSeconds,
+          value: parseFloat(item.value)
+        };
+      });
 
-  // Đẩy dữ liệu vào đường line và fit lại tầm nhìn của Chart
-  lineSeries.setData(uniqueChartData);
-  chart.timeScale().fitContent();
+      // Lọc trùng thời gian
+      const uniqueChartData = chartData.filter((item, index, self) =>
+        index === self.findIndex((t) => t.time === item.time)
+      );
 
-  // Đảm bảo responsive khi thay đổi kích thước màn hình
-  window.addEventListener('resize', () => {
-    if (chart && container) {
-      chart.applyOptions({ width: container.clientWidth });
+      // Nối dữ liệu vào đường line
+      lineSeries.setData(uniqueChartData);
+      chart.timeScale().fitContent();
+
+      // Tự điều chỉnh khi co giãn màn hình
+      window.addEventListener('resize', () => {
+        if (chart && container) {
+          chart.applyOptions({ width: container.clientWidth });
+        }
+      });
     }
-  });
-}   
-   </script>
+  </script>
 </body>
 </html>
