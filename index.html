@@ -152,51 +152,73 @@
 
     // 4. TẢI DỮ LIỆU TỪ SUPABASE & VẼ BIỂU ĐỒ ZIGZAG
     async function loadZigzagChart(symbol = 'BTCUSDT') {
-      const container = document.getElementById('chart-container');
-      
-      // Khởi tạo Chart nếu chưa có
-      if (!chart) {
-        chart = LightweightCharts.createChart(container, {
-          layout: { backgroundColor: '#ffffff', textColor: '#333' },
-          grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
-          timeScale: { timeVisible: true, secondsVisible: false }
-        });
-        
-        lineSeries = chart.addLineSeries({
-          color: '#2962FF',
-          lineWidth: 2,
-        });
-      }
+  const container = document.getElementById('chart-container');
+  
+  // 1. Khởi tạo Chart nếu chưa có
+  if (!chart) {
+    chart = LightweightCharts.createChart(container, {
+      width: container.clientWidth,
+      height: 450,
+      layout: { backgroundColor: '#ffffff', textColor: '#333' },
+      grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
+      timeScale: { timeVisible: true, secondsVisible: true }
+    });
+    
+    lineSeries = chart.addLineSeries({
+      color: '#2962FF',
+      lineWidth: 2,
+      crosshairMarkerVisible: true
+    });
+  }
 
-      // Lấy dữ liệu từ bảng zigzag_data (sắp xếp tăng dần theo thời gian)
-      const { data, error } = await supabaseClient
-        .from('zigzag_data')
-        .select('time, value, is_peak')
-        .eq('symbol', symbol)
-        .order('time', { ascending: true });
+  // 2. Truy vấn dữ liệu từ Supabase
+  const { data, error } = await supabaseClient
+    .from('zigzag_data')
+    .select('*')
+    .eq('symbol', symbol)
+    .order('time', { ascending: true });
 
-      console.log('Dữ liệu nhận từ Supabase:', data);
+  console.log('--- DỮ LIỆU TỪ SUPABASE ---', data);
 
-      if (error) {
-        console.error('Lỗi khi tải zigzag_data:', error.message);
-        return;
-      }
+  if (error) {
+    console.error('Lỗi khi tải zigzag_data:', error.message);
+    alert('Lỗi lấy dữ liệu: ' + error.message);
+    return;
+  }
 
-      if (!data || data.length === 0) {
-        console.warn('Không có dữ liệu trong bảng zigzag_data với symbol ' + symbol);
-        return;
-      }
+  if (!data || data.length === 0) {
+    console.warn('Không tìm thấy bản ghi nào với symbol = ' + symbol);
+    return;
+  }
 
-      // Định dạng mốc thời gian sang Unix timestamp (Giây) cho thư viện Chart
-      const chartData = data.map(item => ({
-        time: Math.floor(new Date(item.time).getTime() / 1000),
-        value: Number(item.value)
-      }));
-
-      // Đưa dữ liệu lên biểu đồ
-      lineSeries.setData(chartData);
-      chart.timeScale().fitContent();
+  // 3. Chuẩn hóa dữ liệu cho Lightweight Charts
+  const chartData = data.map(item => {
+    // Ép kiểu time về Unix Timestamp dạng GIÂY (số)
+    let timeInSeconds;
+    if (typeof item.time === 'number') {
+      timeInSeconds = item.time > 10000000000 ? Math.floor(item.time / 1000) : item.time;
+    } else {
+      timeInSeconds = Math.floor(new Date(item.time).getTime() / 1000);
     }
+
+    return {
+      time: timeInSeconds,
+      value: parseFloat(item.value)
+    };
+  });
+
+  // Loại bỏ các phần tử trùng thời gian (nếu có) để tránh lỗi chart
+  const uniqueChartData = chartData.filter((item, index, self) =>
+    index === self.findIndex((t) => t.time === item.time)
+  );
+
+  console.log('--- DỮ LIỆU ĐÃ CHUẨN HÓA VẼ CHART ---', uniqueChartData);
+
+  // 4. Đẩy dữ liệu vào đường line
+  lineSeries.setData(uniqueChartData);
+  chart.timeScale().fitContent();
+}
+  
   </script>
 </body>
 </html>
