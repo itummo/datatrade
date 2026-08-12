@@ -3,36 +3,104 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trading Light Webview Pro - Strapi Auth</title>
+  <title>Trading Light Webview Pro - Strapi Auth & Charts</title>
+  
   <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background-color: #131722; color: #d1d4dc; height: 100vh; display: flex; flex-direction: column; }
-    .navbar { background-color: #1e222d; border-bottom: 1px solid #2a2e39; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+      background-color: #131722; 
+      color: #d1d4dc; 
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .navbar {
+      background-color: #1e222d;
+      border-bottom: 1px solid #2a2e39;
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
     .brand { font-size: 15px; font-weight: bold; color: #2962ff; }
-    .auth-container { max-width: 360px; margin: auto; padding: 24px; background: #1e222d; border: 1px solid #2a2e39; border-radius: 8px; }
-    input { width: 100%; padding: 10px; margin: 8px 0; background: #131722; border: 1px solid #363a45; border-radius: 4px; color: #fff; }
-    button.btn-primary { width: 100%; padding: 10px; background: #2962ff; border: none; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 5px; }
-    button.btn-secondary { width: 100%; padding: 8px; background: transparent; border: 1px solid #363a45; color: #aaa; border-radius: 4px; margin-top: 8px; cursor: pointer; }
-    .chart-wrapper { flex: 1; position: relative; width: 100%; height: 100%; }
-    #chart-container { width: 100%; height: 100%; }
+    
+    .auth-container {
+      max-width: 360px;
+      margin: auto;
+      padding: 24px;
+      background: #1e222d;
+      border: 1px solid #2a2e39;
+      border-radius: 8px;
+      width: 90%;
+    }
+    .auth-container h3 { margin-bottom: 16px; font-size: 18px; text-align: center; color: #fff; }
+    .auth-container input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      background: #131722;
+      border: 1px solid #363a45;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    .auth-container input:focus { border-color: #2962ff; }
+    .btn-primary {
+      width: 100%;
+      padding: 10px;
+      background: #2962ff;
+      border: none;
+      color: white;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn-primary:hover { background: #1e54e4; }
+    .btn-secondary {
+      width: 100%;
+      padding: 8px;
+      background: transparent;
+      border: 1px solid #363a45;
+      color: #787b86;
+      border-radius: 4px;
+      margin-top: 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn-secondary:hover { color: #fff; border-color: #787b86; }
+    
+    .chart-wrapper {
+      flex: 1;
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    #chart-container {
+      width: 100%;
+      height: 100%;
+    }
+
     .hidden { display: none !important; }
-    #msg { color: #f44336; font-size: 13px; margin-top: 8px; text-align: center; }
+    #msg { margin-top: 10px; font-size: 13px; text-align: center; }
   </style>
 </head>
 <body>
 
   <div class="navbar">
-    <div class="brand">📈 TRADING LIGHT - STRAPI AUTH</div>
+    <div class="brand">📈 TRADING LIGHTWEB - STRAPI API</div>
     <div id="user-status" class="hidden">
-      <span id="user-email" style="font-size: 13px; color: #787b86; margin-right: 10px;"></span>
-      <button onclick="handleSignOut()" style="background:#f44336; border:none; color:#fff; padding:4px 8px; border-radius:4px; cursor:pointer;">Đăng xuất</button>
+      <span id="user-display" style="font-size: 13px; color: #787b86; margin-right: 10px;"></span>
+      <button onclick="handleSignOut()" style="background:#f44336; border:none; color:#fff; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">Đăng xuất</button>
     </div>
   </div>
 
   <div id="auth-screen" class="auth-container">
-    <h3 id="auth-title" style="margin-bottom: 12px; text-align: center;">Đăng Nhập</h3>
-    <input type="text" id="username" placeholder="Tên đăng nhập (Username)...">
+    <h3 id="auth-title">Đăng Nhập</h3>
+    <input type="text" id="username" placeholder="Username (Tên đăng nhập)...">
     <input type="email" id="email" placeholder="Email...">
     <input type="password" id="password" placeholder="Mật khẩu...">
     
@@ -47,13 +115,13 @@
   </div>
 
   <script>
-    // ⚙️ CẤU HÌNH DOMAIN STRAPI VPS CỦA BẠN (Sửa lại đúng domain/IP của bạn)
-    const STRAPI_URL = 'https://your-strapi-vps-domain.com'; 
+    // 🌐 DOMAIN STRAPI VPS QUA CLOUDFLARE TUNNEL
+    const STRAPI_URL = 'https://api.itutrade.online'; 
     
     let isRegisterMode = false;
     let chart = null;
 
-    // Kiểm tra trạng thái đăng nhập khi load trang
+    // 1. Kiểm tra Token khi tải trang
     window.addEventListener('DOMContentLoaded', () => {
       const token = localStorage.getItem('jwt_token');
       const user = JSON.parse(localStorage.getItem('user_info') || '{}');
@@ -63,7 +131,7 @@
       }
     });
 
-    // Chuyển đổi qua lại giữa Đăng nhập và Đăng ký
+    // 2. Chuyển đổi giữa Đăng nhập & Đăng ký
     function toggleAuthMode() {
       isRegisterMode = !isRegisterMode;
       document.getElementById('auth-title').innerText = isRegisterMode ? 'Đăng Ký Tài Khoản' : 'Đăng Nhập';
@@ -71,7 +139,7 @@
       document.getElementById('msg').innerText = '';
     }
 
-    // Hàm xử lý Đăng ký / Đăng nhập gửi về Strapi
+    // 3. Xử lý Gọi API Đăng ký / Đăng nhập từ Strapi
     async function handleAuth() {
       const username = document.getElementById('username').value.trim();
       const email = document.getElementById('email').value.trim();
@@ -79,15 +147,17 @@
       const msgDiv = document.getElementById('msg');
 
       msgDiv.style.color = '#2962ff';
-      msgDiv.innerText = 'Đang xử lý...';
+      msgDiv.innerText = 'Đang kết nối tới server...';
 
+      // Endpoint tương ứng của Strapi
       const endpoint = isRegisterMode 
         ? `${STRAPI_URL}/api/auth/local/register` 
         : `${STRAPI_URL}/api/auth/local`;
 
+      // Payload gửi lên Strapi
       const payload = isRegisterMode 
         ? { username, email, password }
-        : { identifier: email || username, password }; // Strapi cho phép đăng nhập bằng Email hoặc Username qua trường 'identifier'
+        : { identifier: email || username, password }; // Strapi dùng trường 'identifier' chấp nhận cả Email hoặc Username
 
       try {
         const response = await fetch(endpoint, {
@@ -99,10 +169,10 @@
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error?.message || 'Có lỗi xảy ra!');
+          throw new Error(data.error?.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại!');
         }
 
-        // Lưu JWT Token và User Info vào localStorage [cite: 35]
+        // Lưu JWT và thông tin User vào localStorage
         localStorage.setItem('jwt_token', data.jwt);
         localStorage.setItem('user_info', JSON.stringify(data.user));
 
@@ -117,7 +187,7 @@
       }
     }
 
-    // Hàm Đăng xuất
+    // 4. Xử lý Đăng xuất
     function handleSignOut() {
       localStorage.removeItem('jwt_token');
       localStorage.removeItem('user_info');
@@ -126,58 +196,123 @@
       document.getElementById('user-status').classList.add('hidden');
     }
 
-    // Hiển thị màn hình Dashboard sau khi Auth thành công
+    // 5. Hiển thị Dashboard & Gọi hàm render Chart
     function showDashboard(user) {
       document.getElementById('auth-screen').classList.add('hidden');
       document.getElementById('dashboard-screen').classList.remove('hidden');
       document.getElementById('user-status').classList.remove('hidden');
-      document.getElementById('user-email').innerText = user.email;
+      document.getElementById('user-display').innerText = user.email || user.username;
 
       renderAdvancedChart('BTCUSDT');
     }
 
-    // Hàm fetch dữ liệu Chart đính kèm JWT Token
+    // 6. Tải dữ liệu Nến & Peak Markers từ Strapi API để vẽ Lightweight Chart
     async function renderAdvancedChart(symbol) {
       const container = document.getElementById('chart-container');
       if (!container) return;
 
       if (chart) { chart.remove(); chart = null; }
 
+      // Khởi tạo Lightweight Chart
       chart = LightweightCharts.createChart(container, {
         width: container.clientWidth,
         height: container.clientHeight,
         layout: { backgroundColor: '#131722', textColor: '#d1d4dc' },
-        grid: { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } }
+        grid: { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
+        timeScale: { timeVisible: true, secondsVisible: false }
       });
 
-      const candlestickSeries = chart.addCandlestickSeries();
+      const candlestickSeries = chart.addCandlestickSeries({
+        upColor: '#26a69a', downColor: '#ef5350',
+        borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+        wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+      });
+
+      const zigzagLineSeries = chart.addLineSeries({
+        color: '#ffeb3b', lineWidth: 2, lineStyle: 0
+      });
+
       const token = localStorage.getItem('jwt_token');
 
       try {
-        // Gửi request lấy dữ liệu nến kèm JWT Token trong Bearer Header 
-        const res = await fetch(`${STRAPI_URL}/api/candles?filters[symbol][$eq]=${symbol}&sort=time:asc`, {
+        // Fetch API từ Strapi
+        // Giả định collection 'candles' chứa dữ liệu nến
+        const res = await fetch(`${STRAPI_URL}/api/candles?filters[symbol][$eq]=${symbol}&sort=time:asc&pagination[limit]=1000`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
         });
+        
         const result = await res.json();
         
-        // Map dữ liệu từ Strapi trả về chuẩn Lightweight Charts [cite: 5, 6, 82]
         if (result.data) {
-          const formattedCandles = result.data.map(item => ({
-            time: Math.floor(new Date(item.attributes.time).getTime() / 1000),
-            open: item.attributes.open,
-            high: item.attributes.high,
-            low: item.attributes.low,
-            close: item.attributes.close,
-          }));
-          
-          candlestickSeries.setData(formattedCandles); // Render dữ liệu [cite: 7]
+          const candleData = [];
+          const zigzagData = [];
+          const markers = [];
+
+          result.data.forEach(item => {
+            // Hỗ trợ cả Strapi v4 (attributes) lẫn v5
+            const attr = item.attributes || item; 
+            const timeInSeconds = Math.floor(new Date(attr.time).getTime() / 1000);
+
+            // 1. Candlestick
+            candleData.push({
+              time: timeInSeconds,
+              open: parseFloat(attr.open),
+              high: parseFloat(attr.high),
+              low: parseFloat(attr.low),
+              close: parseFloat(attr.close)
+            });
+
+            // 2. Zigzag & Markers (Peaks/Bottoms)
+            if (attr.zigzag_val !== null && attr.zigzag_val !== undefined) {
+              const val = parseFloat(attr.zigzag_val);
+              zigzagData.push({ time: timeInSeconds, value: val });
+
+              if (attr.is_peak === true) {
+                markers.push({
+                  time: timeInSeconds,
+                  position: 'aboveBar',
+                  color: '#ef5350',
+                  shape: 'arrowDown',
+                  text: `PEAK: ${val.toLocaleString()}`
+                });
+              } else if (attr.is_peak === false) {
+                markers.push({
+                  time: timeInSeconds,
+                  position: 'belowBar',
+                  color: '#26a69a',
+                  shape: 'arrowUp',
+                  text: `BOTTOM: ${val.toLocaleString()}`
+                });
+              }
+            }
+          });
+
+          // Lọc trùng thời gian
+          const uniqueCandles = candleData.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
+          const uniqueZigzag = zigzagData.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
+          const uniqueMarkers = markers.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
+
+          // Nạp dữ liệu lên Chart
+          candlestickSeries.setData(uniqueCandles);
+          zigzagLineSeries.setData(uniqueZigzag);
+          candlestickSeries.setMarkers(uniqueMarkers);
+
+          chart.timeScale().fitContent();
         }
       } catch (err) {
-        console.error('Không thể lấy dữ liệu nến:', err);
+        console.error('Lỗi khi lấy dữ liệu từ Strapi API:', err);
       }
     }
+
+    // Tự động Responsive Chart khi Resize màn hình
+    window.addEventListener('resize', () => {
+      const container = document.getElementById('chart-container');
+      if (chart && container) {
+        chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+      }
+    });
   </script>
 </body>
 </html>
