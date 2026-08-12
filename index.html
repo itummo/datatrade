@@ -3,65 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trading Light Webview Pro - OHLC & Peak Markers</title>
-  
-  <!-- Supabase JS SDK -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- Lightweight Charts v3.8.0 -->
+  <title>Trading Light Webview Pro - Strapi Auth</title>
   <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
-
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { 
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-      background-color: #131722; 
-      color: #d1d4dc; 
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    .navbar {
-      background-color: #1e222d;
-      border-bottom: 1px solid #2a2e39;
-      padding: 10px 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
+    body { font-family: sans-serif; background-color: #131722; color: #d1d4dc; height: 100vh; display: flex; flex-direction: column; }
+    .navbar { background-color: #1e222d; border-bottom: 1px solid #2a2e39; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; }
     .brand { font-size: 15px; font-weight: bold; color: #2962ff; }
-    .auth-container {
-      max-width: 360px;
-      margin: auto;
-      padding: 24px;
-      background: #1e222d;
-      border: 1px solid #2a2e39;
-      border-radius: 8px;
-    }
-    input {
-      width: 100%;
-      padding: 10px;
-      margin: 8px 0;
-      background: #131722;
-      border: 1px solid #363a45;
-      border-radius: 4px;
-      color: #fff;
-    }
-    button.btn-primary {
-      width: 100%;
-      padding: 10px;
-      background: #2962ff;
-      border: none;
-      color: white;
-      border-radius: 4px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-    .chart-wrapper {
-      flex: 1;
-      position: relative;
-      width: 100%;
-      height: 100%;
-    }
+    .auth-container { max-width: 360px; margin: auto; padding: 24px; background: #1e222d; border: 1px solid #2a2e39; border-radius: 8px; }
+    input { width: 100%; padding: 10px; margin: 8px 0; background: #131722; border: 1px solid #363a45; border-radius: 4px; color: #fff; }
+    button.btn-primary { width: 100%; padding: 10px; background: #2962ff; border: none; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 5px; }
+    button.btn-secondary { width: 100%; padding: 8px; background: transparent; border: 1px solid #363a45; color: #aaa; border-radius: 4px; margin-top: 8px; cursor: pointer; }
+    .chart-wrapper { flex: 1; position: relative; width: 100%; height: 100%; }
     #chart-container { width: 100%; height: 100%; }
     .hidden { display: none !important; }
     #msg { color: #f44336; font-size: 13px; margin-top: 8px; text-align: center; }
@@ -70,193 +23,161 @@
 <body>
 
   <div class="navbar">
-    <div class="brand">📈 TRADING LIGHT - ZIGZAG PEAKS & OHLC</div>
+    <div class="brand">📈 TRADING LIGHT - STRAPI AUTH</div>
     <div id="user-status" class="hidden">
       <span id="user-email" style="font-size: 13px; color: #787b86; margin-right: 10px;"></span>
       <button onclick="handleSignOut()" style="background:#f44336; border:none; color:#fff; padding:4px 8px; border-radius:4px; cursor:pointer;">Đăng xuất</button>
     </div>
   </div>
 
-  <!-- Form Login -->
   <div id="auth-screen" class="auth-container">
-    <h3 style="margin-bottom: 12px; text-align: center;">Đăng Nhập</h3>
+    <h3 id="auth-title" style="margin-bottom: 12px; text-align: center;">Đăng Nhập</h3>
+    <input type="text" id="username" placeholder="Tên đăng nhập (Username)...">
     <input type="email" id="email" placeholder="Email...">
     <input type="password" id="password" placeholder="Mật khẩu...">
-    <button class="btn-primary" onclick="handleSignIn()">Đăng Nhập</button>
+    
+    <button id="btn-submit" class="btn-primary" onclick="handleAuth()">Đăng Nhập</button>
+    <button class="btn-secondary" onclick="toggleAuthMode()">Chuyển sang Đăng ký / Đăng nhập</button>
+    
     <div id="msg"></div>
   </div>
 
-  <!-- Screen chứa Chart -->
   <div id="dashboard-screen" class="chart-wrapper hidden">
     <div id="chart-container"></div>
   </div>
 
   <script>
-    // ⚙️ CẤU HÌNH SUPABASE
-    const SUPABASE_URL = 'https://tezauanmyuxugsprdegg.supabase.co';
-    const SUPABASE_KEY = 'sb_publishable_HaqgO14NHvqy0cWbiI1RzA_KKOPKiXZ';
- const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
+    // ⚙️ CẤU HÌNH DOMAIN STRAPI VPS CỦA BẠN (Sửa lại đúng domain/IP của bạn)
+    const STRAPI_URL = 'https://your-strapi-vps-domain.com'; 
+    
+    let isRegisterMode = false;
     let chart = null;
-    let candlestickSeries = null;
-    let zigzagLineSeries = null;
 
-    // THEO DÕI LOGGED IN
-    supabaseClient.auth.onAuthStateChange((event, session) => {
-      const authScreen = document.getElementById('auth-screen');
-      const dashboardScreen = document.getElementById('dashboard-screen');
-      const userStatus = document.getElementById('user-status');
-      const userEmail = document.getElementById('user-email');
+    // Kiểm tra trạng thái đăng nhập khi load trang
+    window.addEventListener('DOMContentLoaded', () => {
+      const token = localStorage.getItem('jwt_token');
+      const user = JSON.parse(localStorage.getItem('user_info') || '{}');
 
-      if (session) {
-        authScreen.classList.add('hidden');
-        dashboardScreen.classList.remove('hidden');
-        userStatus.classList.remove('hidden');
-        userEmail.innerText = session.user.email;
-        
-        setTimeout(() => renderAdvancedChart('BTCUSDT'), 150);
-      } else {
-        authScreen.classList.remove('hidden');
-        dashboardScreen.classList.add('hidden');
-        userStatus.classList.add('hidden');
+      if (token && user) {
+        showDashboard(user);
       }
     });
 
-    async function handleSignIn() {
-      const email = document.getElementById('email').value;
-      const password = document.getElementById('password').value;
+    // Chuyển đổi qua lại giữa Đăng nhập và Đăng ký
+    function toggleAuthMode() {
+      isRegisterMode = !isRegisterMode;
+      document.getElementById('auth-title').innerText = isRegisterMode ? 'Đăng Ký Tài Khoản' : 'Đăng Nhập';
+      document.getElementById('btn-submit').innerText = isRegisterMode ? 'Đăng Ký' : 'Đăng Nhập';
+      document.getElementById('msg').innerText = '';
+    }
+
+    // Hàm xử lý Đăng ký / Đăng nhập gửi về Strapi
+    async function handleAuth() {
+      const username = document.getElementById('username').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value.trim();
       const msgDiv = document.getElementById('msg');
-      msgDiv.innerText = 'Đang xác thực...';
 
-      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-      if (error) msgDiv.innerText = 'Lỗi: ' + error.message;
+      msgDiv.style.color = '#2962ff';
+      msgDiv.innerText = 'Đang xử lý...';
+
+      const endpoint = isRegisterMode 
+        ? `${STRAPI_URL}/api/auth/local/register` 
+        : `${STRAPI_URL}/api/auth/local`;
+
+      const payload = isRegisterMode 
+        ? { username, email, password }
+        : { identifier: email || username, password }; // Strapi cho phép đăng nhập bằng Email hoặc Username qua trường 'identifier'
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error?.message || 'Có lỗi xảy ra!');
+        }
+
+        // Lưu JWT Token và User Info vào localStorage [cite: 35]
+        localStorage.setItem('jwt_token', data.jwt);
+        localStorage.setItem('user_info', JSON.stringify(data.user));
+
+        msgDiv.style.color = '#4caf50';
+        msgDiv.innerText = 'Thành công!';
+        
+        showDashboard(data.user);
+
+      } catch (err) {
+        msgDiv.style.color = '#f44336';
+        msgDiv.innerText = err.message;
+      }
     }
 
-    async function handleSignOut() {
-      await supabaseClient.auth.signOut();
+    // Hàm Đăng xuất
+    function handleSignOut() {
+      localStorage.removeItem('jwt_token');
+      localStorage.removeItem('user_info');
+      document.getElementById('auth-screen').classList.remove('hidden');
+      document.getElementById('dashboard-screen').classList.add('hidden');
+      document.getElementById('user-status').classList.add('hidden');
     }
 
-    // 🚀 HÀM VẼ OHLC + ZIGZAG LINE + PEAK MARKERS
+    // Hiển thị màn hình Dashboard sau khi Auth thành công
+    function showDashboard(user) {
+      document.getElementById('auth-screen').classList.add('hidden');
+      document.getElementById('dashboard-screen').classList.remove('hidden');
+      document.getElementById('user-status').classList.remove('hidden');
+      document.getElementById('user-email').innerText = user.email;
+
+      renderAdvancedChart('BTCUSDT');
+    }
+
+    // Hàm fetch dữ liệu Chart đính kèm JWT Token
     async function renderAdvancedChart(symbol) {
       const container = document.getElementById('chart-container');
       if (!container) return;
 
-      if (chart) {
-        chart.remove();
-        chart = null;
-      }
+      if (chart) { chart.remove(); chart = null; }
 
-      // 1. Tạo Khung Chart Dark Theme
       chart = LightweightCharts.createChart(container, {
         width: container.clientWidth,
         height: container.clientHeight,
         layout: { backgroundColor: '#131722', textColor: '#d1d4dc' },
-        grid: { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
-        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-        timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2a2e39' },
-        rightPriceScale: { borderColor: '#2a2e39' }
+        grid: { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } }
       });
 
-      // 2. Lớp Layer 1: Nến Candlestick (OHLC)
-      candlestickSeries = chart.addCandlestickSeries({
-        upColor: '#26a69a',
-        downColor: '#ef5350',
-        borderVisible: false,
-        wickUpColor: '#26a69a',
-        wickDownColor: '#ef5350',
-      });
+      const candlestickSeries = chart.addCandlestickSeries();
+      const token = localStorage.getItem('jwt_token');
 
-      // 3. Lớp Layer 2: Đường Zigzag Nối Đỉnh Đáy
-      zigzagLineSeries = chart.addLineSeries({
-        color: '#f0b90b', // Màu vàng
-        lineWidth: 2,
-        crosshairMarkerVisible: false,
-      });
-
-      // 4. Lấy dữ liệu từ Supabase
-      const { data, error } = await supabaseClient
-        .from('zigzag_data')
-        .select('*')
-        .eq('symbol', symbol)
-        .order('time', { ascending: true });
-
-      if (error || !data || data.length === 0) {
-        console.warn('Chưa có dữ liệu zigzag_data');
-        return;
-      }
-
-      // Xử lý dữ liệu
-      const candleData = [];
-      const zigzagData = [];
-      const markers = [];
-
-      data.forEach((item, index) => {
-        const timeInSeconds = Math.floor(new Date(item.time).getTime() / 1000);
-        const val = parseFloat(item.value);
-
-        // Tạo Nến Giả Lập (Mẫu) xung quanh giá Zigzag để xem nến OHLC
-        // (Nếu DB bạn có sẵn open, high, low, close thì thay vào đây)
-        const openPrice = index > 0 ? parseFloat(data[index - 1].value) : val * 0.99;
-        const closePrice = val;
-        const highPrice = Math.max(openPrice, closePrice) + (val * 0.002);
-        const lowPrice = Math.min(openPrice, closePrice) - (val * 0.002);
-
-        candleData.push({
-          time: timeInSeconds,
-          open: openPrice,
-          high: highPrice,
-          low: lowPrice,
-          close: closePrice
+      try {
+        // Gửi request lấy dữ liệu nến kèm JWT Token trong Bearer Header 
+        const res = await fetch(`${STRAPI_URL}/api/candles?filters[symbol][$eq]=${symbol}&sort=time:asc`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
         });
-
-        // Dữ liệu cho Đường Zigzag
-        zigzagData.push({
-          time: timeInSeconds,
-          value: val
-        });
-
-        // 5. Mũi tên & Note tại điểm PEAK / BOTTOM
-        if (item.is_peak === true) {
-          markers.push({
-            time: timeInSeconds,
-            position: 'aboveBar',
-            color: '#ef5350', // Đỏ cho Đỉnh (Peak)
-            shape: 'arrowDown',
-            text: `PEAK: ${val.toLocaleString()}`
-          });
-        } else if (item.is_peak === false) {
-          markers.push({
-            time: timeInSeconds,
-            position: 'belowBar',
-            color: '#26a69a', // Xanh cho Đáy (Bottom)
-            shape: 'arrowUp',
-            text: `BOTTOM: ${val.toLocaleString()}`
-          });
+        const result = await res.json();
+        
+        // Map dữ liệu từ Strapi trả về chuẩn Lightweight Charts [cite: 5, 6, 82]
+        if (result.data) {
+          const formattedCandles = result.data.map(item => ({
+            time: Math.floor(new Date(item.attributes.time).getTime() / 1000),
+            open: item.attributes.open,
+            high: item.attributes.high,
+            low: item.attributes.low,
+            close: item.attributes.close,
+          }));
+          
+          candlestickSeries.setData(formattedCandles); // Render dữ liệu [cite: 7]
         }
-      });
-
-      // Lọc trùng thời gian
-      const uniqueCandles = candleData.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
-      const uniqueZigzag = zigzagData.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
-      const uniqueMarkers = markers.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
-
-      // Đưa Dữ Liệu Lên Chart
-      candlestickSeries.setData(uniqueCandles);
-      zigzagLineSeries.setData(uniqueZigzag);
-      
-      // Đánh dấu Mũi tên & Ghi chú Note lên Nến
-      candlestickSeries.setMarkers(uniqueMarkers);
-
-      chart.timeScale().fitContent();
-    }
-
-    // Responsive Chart
-    window.addEventListener('resize', () => {
-      const container = document.getElementById('chart-container');
-      if (chart && container) {
-        chart.resize(container.clientWidth, container.clientHeight);
+      } catch (err) {
+        console.error('Không thể lấy dữ liệu nến:', err);
       }
-    });
+    }
   </script>
 </body>
 </html>
