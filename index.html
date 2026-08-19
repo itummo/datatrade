@@ -86,6 +86,11 @@
 
     .hidden { display: none !important; }
     #msg { margin-top: 10px; font-size: 13px; text-align: center; }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #787b86;
+    }
   </style>
 </head>
 <body>
@@ -111,7 +116,9 @@
   </div>
 
   <div id="dashboard-screen" class="chart-wrapper hidden">
-    <div id="chart-container"></div>
+    <div id="chart-container">
+      <div class="loading">Đang tải dữ liệu...</div>
+    </div>
   </div>
 
   <script>
@@ -149,12 +156,10 @@
       msgDiv.style.color = '#2962ff';
       msgDiv.innerText = 'Đang kết nối tới server...';
 
-      // Endpoint tương ứng của Strapi
       const endpoint = isRegisterMode 
         ? `${STRAPI_URL}/api/auth/local/register` 
         : `${STRAPI_URL}/api/auth/local`;
 
-      // Payload gửi lên Strapi
       const payload = isRegisterMode 
         ? { username, email, password }
         : { identifier: email || username, password };
@@ -202,87 +207,136 @@
       document.getElementById('user-status').classList.remove('hidden');
       document.getElementById('user-display').innerText = user.email || user.username;
 
-      renderAdvancedChart('BTCUSDT');
+      renderAdvancedChart();
     }
 
-    // 6. Tải dữ liệu Nến từ API future-btcusdt-lastcandle-5ms và vẽ Lightweight Chart
-    async function renderAdvancedChart(symbol) {
+    // 6. Tải dữ liệu Nến từ API và vẽ Lightweight Chart
+    async function renderAdvancedChart() {
       const container = document.getElementById('chart-container');
       if (!container) return;
 
-      if (chart) { chart.remove(); chart = null; }
+      // Hiển thị loading
+      container.innerHTML = '<div class="loading">Đang tải dữ liệu nến...</div>';
 
-      // Khởi tạo Lightweight Chart
-      chart = LightweightCharts.createChart(container, {
-        width: container.clientWidth,
-        height: container.clientHeight,
-        layout: { backgroundColor: '#131722', textColor: '#d1d4dc' },
-        grid: { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
-        timeScale: { timeVisible: true, secondsVisible: false }
-      });
-
-      const candlestickSeries = chart.addCandlestickSeries({
-        upColor: '#26a69a', downColor: '#ef5350',
-        borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-        wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-      });
+      // Xóa chart cũ nếu có
+      if (chart) { 
+        chart.remove(); 
+        chart = null; 
+      }
 
       const token = localStorage.getItem('jwt_token');
 
       try {
         // Gọi API lấy dữ liệu nến 5 phút
+        console.log('Đang gọi API:', `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`);
+        
         const res = await fetch(`${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`, {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
           }
         });
         
-        const result = await res.json();
-        
-        if (result.data && Array.isArray(result.data)) {
-          const candleData = [];
-
-          result.data.forEach(item => {
-            // Dữ liệu từ API có các trường: open_time, open_ashi, high_ashi, low_ashi, close_ashi
-            // open_time là timestamp milliseconds
-            const timeInSeconds = Math.floor(parseInt(item.open_time) / 1000);
-
-            candleData.push({
-              time: timeInSeconds,
-              open: parseFloat(item.open_ashi),
-              high: parseFloat(item.high_ashi),
-              low: parseFloat(item.low_ashi),
-              close: parseFloat(item.close_ashi)
-            });
-          });
-
-          // Sắp xếp dữ liệu theo thời gian tăng dần
-          candleData.sort((a, b) => a.time - b.time);
-
-          // Lọc trùng thời gian (nếu có)
-          const uniqueCandles = candleData.filter((v, i, a) => 
-            a.findIndex(t => t.time === v.time) === i
-          );
-
-          // Nạp dữ liệu lên Chart
-          candlestickSeries.setData(uniqueCandles);
-
-          chart.timeScale().fitContent();
-        } else {
-          console.warn('Không có dữ liệu nến từ API');
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
         }
+        
+        const result = await res.json();
+        console.log('Dữ liệu nhận được:', result);
+        
+        // Kiểm tra cấu trúc dữ liệu
+        if (!result.data || !Array.isArray(result.data) || result.data.length === 0) {
+          throw new Error('Không có dữ liệu nến từ API');
+        }
+
+        // Xóa loading
+        container.innerHTML = '';
+
+        // Khởi tạo Lightweight Chart
+        chart = LightweightCharts.createChart(container, {
+          width: container.clientWidth,
+          height: container.clientHeight,
+          layout: { 
+            backgroundColor: '#131722', 
+            textColor: '#d1d4dc' 
+          },
+          grid: { 
+            vertLines: { color: '#1f2937' }, 
+            horzLines: { color: '#1f2937' } 
+          },
+          timeScale: { 
+            timeVisible: true, 
+            secondsVisible: false,
+            borderColor: '#2a2e39'
+          },
+          rightPriceScale: {
+            borderColor: '#2a2e39'
+          },
+          handleScroll: true,
+          handleScale: true
+        });
+
+        const candlestickSeries = chart.addCandlestickSeries({
+          upColor: '#26a69a', 
+          downColor: '#ef5350',
+          borderUpColor: '#26a69a', 
+          borderDownColor: '#ef5350',
+          wickUpColor: '#26a69a', 
+          wickDownColor: '#ef5350',
+        });
+
+        // Chuyển đổi dữ liệu từ API sang định dạng của Lightweight Charts
+        const candleData = result.data.map(item => {
+          // open_time là timestamp milliseconds
+          const timeInSeconds = Math.floor(parseInt(item.open_time) / 1000);
+          
+          return {
+            time: timeInSeconds,
+            open: parseFloat(item.open_ashi),
+            high: parseFloat(item.high_ashi),
+            low: parseFloat(item.low_ashi),
+            close: parseFloat(item.close_ashi)
+          };
+        });
+
+        // Sắp xếp dữ liệu theo thời gian tăng dần
+        candleData.sort((a, b) => a.time - b.time);
+
+        console.log('Dữ liệu nến sau khi xử lý:', candleData);
+
+        // Nạp dữ liệu lên Chart
+        candlestickSeries.setData(candleData);
+
+        // Tự động điều chỉnh hiển thị
+        chart.timeScale().fitContent();
+
+        console.log('Chart đã được vẽ thành công!');
+
       } catch (err) {
-        console.error('Lỗi khi lấy dữ liệu từ Strapi API:', err);
+        console.error('Lỗi khi lấy hoặc vẽ dữ liệu:', err);
+        container.innerHTML = `<div class="loading" style="color: #ef5350;">❌ Lỗi: ${err.message}</div>`;
       }
     }
 
     // Tự động Responsive Chart khi Resize màn hình
     window.addEventListener('resize', () => {
       const container = document.getElementById('chart-container');
-      if (chart && container) {
-        chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+      if (chart && container && !container.innerHTML.includes('loading')) {
+        try {
+          chart.applyOptions({ 
+            width: container.clientWidth, 
+            height: container.clientHeight 
+          });
+        } catch (e) {
+          console.warn('Lỗi khi resize chart:', e);
+        }
       }
     });
+
+    // Hàm reload chart (có thể gọi từ console để test)
+    window.reloadChart = function() {
+      renderAdvancedChart();
+    };
   </script>
 </body>
 </html>
