@@ -106,11 +106,45 @@
       width: 0%;
       transition: width 0.3s;
     }
+    .status-bar {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(19, 23, 34, 0.9);
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      color: #787b86;
+      border: 1px solid #2a2e39;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      backdrop-filter: blur(10px);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot.live {
+      background: #4caf50;
+      animation: pulse 2s infinite;
+    }
+    .status-dot.error {
+      background: #ef5350;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.3; }
+      100% { opacity: 1; }
+    }
   </style>
 </head>
 <body>
 
-  <!-- Progress bar -->
   <div class="progress-bar" id="progressBar">
     <div class="progress" id="progress"></div>
   </div>
@@ -146,21 +180,29 @@
     
     let isRegisterMode = false;
     let chart = null;
+    let candlestickSeries = null;
+    let autoRefreshInterval = null;
+    let allCandleData = [];
+    let lastCandleTime = 0;
+    let isRefreshing = false;
 
-    // ✅ Hàm lấy toàn bộ dữ liệu từ API (tất cả các trang)
+    // ⏱️ Cấu hình auto-refresh
+    const REFRESH_INTERVAL = 30000; // 30 giây (phù hợp với nến 5 phút)
+    // const REFRESH_INTERVAL = 60000; // 1 phút
+    // const REFRESH_INTERVAL = 300000; // 5 phút
+
+    // ✅ Hàm lấy toàn bộ dữ liệu từ API
     async function fetchAllData(endpoint, token) {
       let allData = [];
       let page = 1;
-      const pageSize = 25; // Mỗi trang 25 bản ghi
+      const pageSize = 100; // Tăng lên 100 để giảm số lần gọi
       let hasMore = true;
       let totalItems = 0;
 
-      // Hiển thị progress
       const progress = document.getElementById('progress');
       
       try {
         while (hasMore) {
-          // Gọi API với tham số phân trang
           const url = `${endpoint}?pagination[page]=${page}&pagination[pageSize]=${pageSize}&sort=open_time:asc`;
           console.log(`📥 Đang tải trang ${page}...`);
           
@@ -177,25 +219,21 @@
 
           const result = await response.json();
           
-          // Cập nhật tổng số items
           if (page === 1 && result.meta?.pagination?.total) {
             totalItems = result.meta.pagination.total;
             console.log(`📊 Tổng số bản ghi: ${totalItems}`);
           }
 
-          // Thêm dữ liệu từ trang hiện tại
           if (result.data && Array.isArray(result.data)) {
             allData = allData.concat(result.data);
             console.log(`✅ Trang ${page}: đã lấy ${result.data.length} bản ghi (tổng: ${allData.length})`);
           }
 
-          // Kiểm tra còn trang tiếp theo không
           if (result.meta?.pagination?.pageCount) {
             const totalPages = result.meta.pagination.pageCount;
             hasMore = page < totalPages;
             page++;
             
-            // Cập nhật progress
             const progressPercent = (allData.length / totalItems) * 100;
             progress.style.width = `${Math.min(progressPercent, 100)}%`;
           } else {
@@ -203,7 +241,6 @@
           }
         }
 
-        // Hoàn thành
         progress.style.width = '100%';
         setTimeout(() => {
           progress.style.width = '0%';
@@ -218,6 +255,181 @@
       }
     }
 
+    // 🎨 Vẽ chart
+    function drawChart(container, data) {
+      if (chart) {
+        chart.remove();
+        chart = null;
+      }
+
+      chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: container.clientHeight,
+        layout: { 
+          backgroundColor: '#131722', 
+          textColor: '#d1d4dc' 
+        },
+        grid: { 
+          vertLines: { color: '#1f2937' }, 
+          horzLines: { color: '#1f2937' } 
+        },
+        timeScale: { 
+          timeVisible: true, 
+          secondsVisible: false,
+          borderColor: '#2a2e39'
+        },
+        rightPriceScale: {
+          borderColor: '#2a2e39'
+        }
+      });
+
+      candlestickSeries = chart.addCandlestickSeries({
+        upColor: '#26a69a', 
+        downColor: '#ef5350',
+        borderUpColor: '#26a69a', 
+        borderDownColor: '#ef5350',
+        wickUpColor: '#26a69a', 
+        wickDownColor: '#ef5350',
+      });
+
+      candlestickSeries.setData(data);
+      chart.timeScale().fitContent();
+
+      // Thêm status bar
+      updateStatusBar('live', `${data.length} nến • Cập nhật: ${new Date().toLocaleTimeString()}`);
+    }
+
+    // 📊 Cập nhật dữ liệu mới (chỉ lấy nến mới nhất)
+    async function fetchNewCandles(token, lastTime) {
+      try {
+        // Chỉ lấy dữ liệu mới hơn lastTime
+        const url = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms?sort=open_time:desc&pagination[page]=1&pagination[pageSize]=10`;
+        
+        const response = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (!result.data || !Array.isArray(result.data)) {
+          return [];
+        }
+
+        // Lọc những nến mới hơn lastTime
+        const newCandles = result.data.filter(item => {
+          const time = Math.floor(parseInt(item.open_time) / 1000);
+          return time > lastTime;
+        });
+
+        // Sắp xếp tăng dần theo thời gian
+        newCandles.sort((a, b) => parseInt(a.open_time) - parseInt(b.open_time));
+
+        console.log(`🆕 Phát hiện ${newCandles.length} nến mới`);
+        return newCandles;
+
+      } catch (error) {
+        console.error('❌ Lỗi khi lấy nến mới:', error);
+        return [];
+      }
+    }
+
+    // 🔄 Cập nhật chart với dữ liệu mới
+    async function updateChartWithNewData() {
+      if (isRefreshing) return;
+      isRefreshing = true;
+
+      try {
+        const token = localStorage.getItem('jwt_token');
+        if (!token) {
+          stopAutoRefresh();
+          return;
+        }
+
+        const newCandles = await fetchNewCandles(token, lastCandleTime);
+        
+        if (newCandles.length > 0) {
+          // Chuyển đổi dữ liệu mới
+          const newCandleData = newCandles.map(item => ({
+            time: Math.floor(parseInt(item.open_time) / 1000),
+            open: parseFloat(item.open_ashi),
+            high: parseFloat(item.high_ashi),
+            low: parseFloat(item.low_ashi),
+            close: parseFloat(item.close_ashi)
+          }));
+
+          // Cập nhật dữ liệu
+          allCandleData = allCandleData.concat(newCandleData);
+          
+          // Cập nhật lastTime
+          if (newCandleData.length > 0) {
+            lastCandleTime = newCandleData[newCandleData.length - 1].time;
+          }
+
+          // Cập nhật chart
+          if (candlestickSeries) {
+            candlestickSeries.setData(allCandleData);
+            chart.timeScale().fitContent();
+            
+            // Cập nhật status
+            updateStatusBar('live', `${allCandleData.length} nến • Cập nhật: ${new Date().toLocaleTimeString()}`);
+            console.log(`✅ Đã cập nhật chart với ${newCandleData.length} nến mới`);
+          }
+        } else {
+          // Không có dữ liệu mới
+          updateStatusBar('live', `${allCandleData.length} nến • Không có dữ liệu mới • ${new Date().toLocaleTimeString()}`);
+        }
+
+      } catch (error) {
+        console.error('❌ Lỗi cập nhật:', error);
+        updateStatusBar('error', 'Lỗi kết nối');
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    // 📊 Cập nhật status bar
+    function updateStatusBar(status, text) {
+      const container = document.getElementById('chart-container');
+      let statusBar = container.querySelector('.status-bar');
+      
+      if (!statusBar) {
+        statusBar = document.createElement('div');
+        statusBar.className = 'status-bar';
+        container.appendChild(statusBar);
+      }
+
+      const dotClass = status === 'live' ? 'live' : 'error';
+      statusBar.innerHTML = `
+        <span class="status-dot ${dotClass}"></span>
+        <span>${text}</span>
+        ${status === 'live' ? '<span style="font-size:10px;opacity:0.5;">● Live</span>' : ''}
+      `;
+    }
+
+    // ⏹️ Dừng auto-refresh
+    function stopAutoRefresh() {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+        console.log('⏹️ Đã dừng auto-refresh');
+      }
+    }
+
+    // ▶️ Bắt đầu auto-refresh
+    function startAutoRefresh() {
+      stopAutoRefresh();
+      autoRefreshInterval = setInterval(updateChartWithNewData, REFRESH_INTERVAL);
+      console.log(`▶️ Bắt đầu auto-refresh mỗi ${REFRESH_INTERVAL/1000} giây`);
+    }
+
+    // ============ PHẦN CHÍNH ============
     window.addEventListener('DOMContentLoaded', () => {
       const token = localStorage.getItem('jwt_token');
       const user = JSON.parse(localStorage.getItem('user_info') || '{}');
@@ -279,6 +491,7 @@
     }
 
     function handleSignOut() {
+      stopAutoRefresh();
       localStorage.removeItem('jwt_token');
       localStorage.removeItem('user_info');
       document.getElementById('auth-screen').classList.remove('hidden');
@@ -301,10 +514,7 @@
 
       container.innerHTML = '<div class="loading">Đang tải dữ liệu nến...</div>';
 
-      if (chart) { 
-        chart.remove(); 
-        chart = null; 
-      }
+      stopAutoRefresh();
 
       try {
         const token = localStorage.getItem('jwt_token');
@@ -313,87 +523,38 @@
           throw new Error('Vui lòng đăng nhập lại');
         }
 
-        // ✅ Lấy TOÀN BỘ dữ liệu từ tất cả các trang
+        // Lấy toàn bộ dữ liệu
         const endpoint = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`;
-        const allData = await fetchAllData(endpoint, token);
+        const rawData = await fetchAllData(endpoint, token);
 
-        if (!allData || allData.length === 0) {
+        if (!rawData || rawData.length === 0) {
           throw new Error('Không có dữ liệu nến');
         }
 
         container.innerHTML = '';
 
-        // Khởi tạo Chart
-        chart = LightweightCharts.createChart(container, {
-          width: container.clientWidth,
-          height: container.clientHeight,
-          layout: { 
-            backgroundColor: '#131722', 
-            textColor: '#d1d4dc' 
-          },
-          grid: { 
-            vertLines: { color: '#1f2937' }, 
-            horzLines: { color: '#1f2937' } 
-          },
-          timeScale: { 
-            timeVisible: true, 
-            secondsVisible: false,
-            borderColor: '#2a2e39'
-          },
-          rightPriceScale: {
-            borderColor: '#2a2e39'
-          }
-        });
+        // Chuyển đổi dữ liệu
+        allCandleData = rawData.map(item => ({
+          time: Math.floor(parseInt(item.open_time) / 1000),
+          open: parseFloat(item.open_ashi),
+          high: parseFloat(item.high_ashi),
+          low: parseFloat(item.low_ashi),
+          close: parseFloat(item.close_ashi)
+        }));
 
-        const candlestickSeries = chart.addCandlestickSeries({
-          upColor: '#26a69a', 
-          downColor: '#ef5350',
-          borderUpColor: '#26a69a', 
-          borderDownColor: '#ef5350',
-          wickUpColor: '#26a69a', 
-          wickDownColor: '#ef5350',
-        });
+        allCandleData.sort((a, b) => a.time - b.time);
 
-        // ✅ Chuyển đổi dữ liệu
-        const candleData = allData.map(item => {
-          const timeInSeconds = Math.floor(parseInt(item.open_time) / 1000);
-          
-          return {
-            time: timeInSeconds,
-            open: parseFloat(item.open_ashi),
-            high: parseFloat(item.high_ashi),
-            low: parseFloat(item.low_ashi),
-            close: parseFloat(item.close_ashi)
-          };
-        });
+        // Lưu thời gian của nến cuối cùng
+        lastCandleTime = allCandleData[allCandleData.length - 1].time;
 
-        // Sắp xếp theo thời gian tăng dần
-        candleData.sort((a, b) => a.time - b.time);
+        console.log(`✅ Đã xử lý ${allCandleData.length} nến`);
+        console.log(`📅 Nến cuối cùng: ${new Date(lastCandleTime * 1000).toLocaleString()}`);
 
-        console.log(`✅ Đã xử lý ${candleData.length} nến`);
-        console.log(`📅 Từ: ${new Date(candleData[0].time * 1000).toLocaleString()}`);
-        console.log(`📅 Đến: ${new Date(candleData[candleData.length - 1].time * 1000).toLocaleString()}`);
+        // Vẽ chart
+        drawChart(container, allCandleData);
 
-        // Nạp dữ liệu lên Chart
-        candlestickSeries.setData(candleData);
-        chart.timeScale().fitContent();
-
-        // ✅ Thêm thông tin số lượng nến
-        const infoDiv = document.createElement('div');
-        infoDiv.style.cssText = `
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          background: rgba(19, 23, 34, 0.8);
-          padding: 8px 12px;
-          border-radius: 4px;
-          font-size: 12px;
-          color: #787b86;
-          border: 1px solid #2a2e39;
-          z-index: 10;
-        `;
-        infoDiv.textContent = `📊 ${candleData.length} nến`;
-        container.appendChild(infoDiv);
+        // Bắt đầu auto-refresh
+        startAutoRefresh();
 
       } catch (err) {
         console.error('❌ Lỗi:', err);
@@ -420,6 +581,11 @@
     window.reloadChart = function() {
       renderAdvancedChart();
     };
+
+    // Cleanup khi đóng tab
+    window.addEventListener('beforeunload', () => {
+      stopAutoRefresh();
+    });
   </script>
 </body>
 </html>
