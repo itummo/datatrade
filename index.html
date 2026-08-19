@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trading Light Webview Pro - Strapi Auth & Charts</title>
+  <title>Trading Light Webview Pro - Strapi Charts</title>
   
   <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
 
@@ -157,7 +157,7 @@
       // Payload gửi lên Strapi
       const payload = isRegisterMode 
         ? { username, email, password }
-        : { identifier: email || username, password }; // Strapi dùng trường 'identifier' chấp nhận cả Email hoặc Username
+        : { identifier: email || username, password };
 
       try {
         const response = await fetch(endpoint, {
@@ -172,7 +172,6 @@
           throw new Error(data.error?.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại!');
         }
 
-        // Lưu JWT và thông tin User vào localStorage
         localStorage.setItem('jwt_token', data.jwt);
         localStorage.setItem('user_info', JSON.stringify(data.user));
 
@@ -206,7 +205,7 @@
       renderAdvancedChart('BTCUSDT');
     }
 
-    // 6. Tải dữ liệu Nến & Peak Markers từ Strapi API để vẽ Lightweight Chart
+    // 6. Tải dữ liệu Nến từ API future-btcusdt-lastcandle-5ms và vẽ Lightweight Chart
     async function renderAdvancedChart(symbol) {
       const container = document.getElementById('chart-container');
       if (!container) return;
@@ -228,16 +227,11 @@
         wickUpColor: '#26a69a', wickDownColor: '#ef5350',
       });
 
-      const zigzagLineSeries = chart.addLineSeries({
-        color: '#ffeb3b', lineWidth: 2, lineStyle: 0
-      });
-
       const token = localStorage.getItem('jwt_token');
 
       try {
-        // Fetch API từ Strapi
-        // Giả định collection 'candles' chứa dữ liệu nến
-        const res = await fetch(`${STRAPI_URL}/api/candles?filters[symbol][$eq]=${symbol}&sort=time:asc&pagination[limit]=1000`, {
+        // Gọi API lấy dữ liệu nến 5 phút
+        const res = await fetch(`${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -245,61 +239,37 @@
         
         const result = await res.json();
         
-        if (result.data) {
+        if (result.data && Array.isArray(result.data)) {
           const candleData = [];
-          const zigzagData = [];
-          const markers = [];
 
           result.data.forEach(item => {
-            // Hỗ trợ cả Strapi v4 (attributes) lẫn v5
-            const attr = item.attributes || item; 
-            const timeInSeconds = Math.floor(new Date(attr.time).getTime() / 1000);
+            // Dữ liệu từ API có các trường: open_time, open_ashi, high_ashi, low_ashi, close_ashi
+            // open_time là timestamp milliseconds
+            const timeInSeconds = Math.floor(parseInt(item.open_time) / 1000);
 
-            // 1. Candlestick
             candleData.push({
               time: timeInSeconds,
-              open: parseFloat(attr.open),
-              high: parseFloat(attr.high),
-              low: parseFloat(attr.low),
-              close: parseFloat(attr.close)
+              open: parseFloat(item.open_ashi),
+              high: parseFloat(item.high_ashi),
+              low: parseFloat(item.low_ashi),
+              close: parseFloat(item.close_ashi)
             });
-
-            // 2. Zigzag & Markers (Peaks/Bottoms)
-            if (attr.zigzag_val !== null && attr.zigzag_val !== undefined) {
-              const val = parseFloat(attr.zigzag_val);
-              zigzagData.push({ time: timeInSeconds, value: val });
-
-              if (attr.is_peak === true) {
-                markers.push({
-                  time: timeInSeconds,
-                  position: 'aboveBar',
-                  color: '#ef5350',
-                  shape: 'arrowDown',
-                  text: `PEAK: ${val.toLocaleString()}`
-                });
-              } else if (attr.is_peak === false) {
-                markers.push({
-                  time: timeInSeconds,
-                  position: 'belowBar',
-                  color: '#26a69a',
-                  shape: 'arrowUp',
-                  text: `BOTTOM: ${val.toLocaleString()}`
-                });
-              }
-            }
           });
 
-          // Lọc trùng thời gian
-          const uniqueCandles = candleData.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
-          const uniqueZigzag = zigzagData.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
-          const uniqueMarkers = markers.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
+          // Sắp xếp dữ liệu theo thời gian tăng dần
+          candleData.sort((a, b) => a.time - b.time);
+
+          // Lọc trùng thời gian (nếu có)
+          const uniqueCandles = candleData.filter((v, i, a) => 
+            a.findIndex(t => t.time === v.time) === i
+          );
 
           // Nạp dữ liệu lên Chart
           candlestickSeries.setData(uniqueCandles);
-          zigzagLineSeries.setData(uniqueZigzag);
-          candlestickSeries.setMarkers(uniqueMarkers);
 
           chart.timeScale().fitContent();
+        } else {
+          console.warn('Không có dữ liệu nến từ API');
         }
       } catch (err) {
         console.error('Lỗi khi lấy dữ liệu từ Strapi API:', err);
