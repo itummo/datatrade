@@ -91,9 +91,29 @@
       padding: 20px;
       color: #787b86;
     }
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: #1f2937;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 9999;
+    }
+    .progress-bar .progress {
+      height: 100%;
+      background: #2962ff;
+      width: 0%;
+      transition: width 0.3s;
+    }
   </style>
 </head>
 <body>
+
+  <!-- Progress bar -->
+  <div class="progress-bar" id="progressBar">
+    <div class="progress" id="progress"></div>
+  </div>
 
   <div class="navbar">
     <div class="brand">📈 TRADING LIGHTWEB - STRAPI API</div>
@@ -124,28 +144,78 @@
   <script>
     const STRAPI_URL = 'https://api.itutrade.online'; 
     
-    // 🔐 KHÔNG lưu token trong code - lấy từ localStorage sau khi login
     let isRegisterMode = false;
     let chart = null;
-    let lastRequestTime = 0;
-    let requestCount = 0;
 
-    // ✅ Rate limiting client-side
-    function canMakeRequest() {
-      const now = Date.now();
-      // Reset count sau 1 phút
-      if (now - lastRequestTime > 60000) {
-        requestCount = 0;
-        lastRequestTime = now;
-      }
+    // ✅ Hàm lấy toàn bộ dữ liệu từ API (tất cả các trang)
+    async function fetchAllData(endpoint, token) {
+      let allData = [];
+      let page = 1;
+      const pageSize = 25; // Mỗi trang 25 bản ghi
+      let hasMore = true;
+      let totalItems = 0;
+
+      // Hiển thị progress
+      const progress = document.getElementById('progress');
       
-      // Giới hạn 10 requests/phút
-      if (requestCount >= 10) {
-        return false;
+      try {
+        while (hasMore) {
+          // Gọi API với tham số phân trang
+          const url = `${endpoint}?pagination[page]=${page}&pagination[pageSize]=${pageSize}&sort=open_time:asc`;
+          console.log(`📥 Đang tải trang ${page}...`);
+          
+          const response = await fetch(url, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const result = await response.json();
+          
+          // Cập nhật tổng số items
+          if (page === 1 && result.meta?.pagination?.total) {
+            totalItems = result.meta.pagination.total;
+            console.log(`📊 Tổng số bản ghi: ${totalItems}`);
+          }
+
+          // Thêm dữ liệu từ trang hiện tại
+          if (result.data && Array.isArray(result.data)) {
+            allData = allData.concat(result.data);
+            console.log(`✅ Trang ${page}: đã lấy ${result.data.length} bản ghi (tổng: ${allData.length})`);
+          }
+
+          // Kiểm tra còn trang tiếp theo không
+          if (result.meta?.pagination?.pageCount) {
+            const totalPages = result.meta.pagination.pageCount;
+            hasMore = page < totalPages;
+            page++;
+            
+            // Cập nhật progress
+            const progressPercent = (allData.length / totalItems) * 100;
+            progress.style.width = `${Math.min(progressPercent, 100)}%`;
+          } else {
+            hasMore = false;
+          }
+        }
+
+        // Hoàn thành
+        progress.style.width = '100%';
+        setTimeout(() => {
+          progress.style.width = '0%';
+        }, 500);
+
+        console.log(`🎯 Hoàn thành! Tổng cộng ${allData.length} bản ghi`);
+        return allData;
+
+      } catch (error) {
+        console.error('❌ Lỗi khi tải dữ liệu:', error);
+        throw error;
       }
-      
-      requestCount++;
-      return true;
     }
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -194,7 +264,6 @@
           throw new Error(data.error?.message || 'Đăng nhập thất bại!');
         }
 
-        // ✅ Lưu JWT vào localStorage (chỉ user mới biết)
         localStorage.setItem('jwt_token', data.jwt);
         localStorage.setItem('user_info', JSON.stringify(data.user));
 
@@ -227,17 +296,10 @@
     }
 
     async function renderAdvancedChart() {
-      // ✅ Kiểm tra rate limit
-      if (!canMakeRequest()) {
-        const container = document.getElementById('chart-container');
-        container.innerHTML = '<div class="loading" style="color: #ff9800;">⏳ Quá nhiều yêu cầu, vui lòng đợi 1 phút</div>';
-        return;
-      }
-
       const container = document.getElementById('chart-container');
       if (!container) return;
 
-      container.innerHTML = '<div class="loading">Đang tải dữ liệu...</div>';
+      container.innerHTML = '<div class="loading">Đang tải dữ liệu nến...</div>';
 
       if (chart) { 
         chart.remove(); 
@@ -245,49 +307,23 @@
       }
 
       try {
-        // ✅ Lấy JWT từ localStorage - KHÔNG hardcode
         const token = localStorage.getItem('jwt_token');
         
         if (!token) {
           throw new Error('Vui lòng đăng nhập lại');
         }
 
-        // ✅ Gọi API với JWT của user
-        const res = await fetch(`${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        console.log('🔍 Response status:', res.status);
-        
-        if (res.status === 403) {
-          throw new Error('❌ Không có quyền truy cập. Vui lòng liên hệ admin để cấp quyền.');
-        }
-        
-        if (res.status === 401) {
-          // Token hết hạn
-          localStorage.removeItem('jwt_token');
-          throw new Error('⏰ Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
-        }
-        
-        if (!res.ok) {
-          const errorData = await res.json();
-          console.error('Error response:', errorData);
-          throw new Error(`HTTP ${res.status}: ${errorData.error?.message || 'Lỗi không xác định'}`);
-        }
-        
-        const result = await res.json();
-        console.log('📊 Dữ liệu nhận được:', result);
-        
-        if (!result.data || !Array.isArray(result.data) || result.data.length === 0) {
+        // ✅ Lấy TOÀN BỘ dữ liệu từ tất cả các trang
+        const endpoint = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`;
+        const allData = await fetchAllData(endpoint, token);
+
+        if (!allData || allData.length === 0) {
           throw new Error('Không có dữ liệu nến');
         }
 
         container.innerHTML = '';
 
-        // ✅ Khởi tạo Chart
+        // Khởi tạo Chart
         chart = LightweightCharts.createChart(container, {
           width: container.clientWidth,
           height: container.clientHeight,
@@ -318,8 +354,8 @@
           wickDownColor: '#ef5350',
         });
 
-        // ✅ Xử lý dữ liệu
-        const candleData = result.data.map(item => {
+        // ✅ Chuyển đổi dữ liệu
+        const candleData = allData.map(item => {
           const timeInSeconds = Math.floor(parseInt(item.open_time) / 1000);
           
           return {
@@ -331,11 +367,33 @@
           };
         });
 
+        // Sắp xếp theo thời gian tăng dần
         candleData.sort((a, b) => a.time - b.time);
 
         console.log(`✅ Đã xử lý ${candleData.length} nến`);
+        console.log(`📅 Từ: ${new Date(candleData[0].time * 1000).toLocaleString()}`);
+        console.log(`📅 Đến: ${new Date(candleData[candleData.length - 1].time * 1000).toLocaleString()}`);
+
+        // Nạp dữ liệu lên Chart
         candlestickSeries.setData(candleData);
         chart.timeScale().fitContent();
+
+        // ✅ Thêm thông tin số lượng nến
+        const infoDiv = document.createElement('div');
+        infoDiv.style.cssText = `
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          background: rgba(19, 23, 34, 0.8);
+          padding: 8px 12px;
+          border-radius: 4px;
+          font-size: 12px;
+          color: #787b86;
+          border: 1px solid #2a2e39;
+          z-index: 10;
+        `;
+        infoDiv.textContent = `📊 ${candleData.length} nến`;
+        container.appendChild(infoDiv);
 
       } catch (err) {
         console.error('❌ Lỗi:', err);
@@ -343,7 +401,7 @@
       }
     }
 
-    // ✅ Resize handler
+    // Resize handler
     window.addEventListener('resize', () => {
       const container = document.getElementById('chart-container');
       if (chart && container && !container.innerHTML.includes('loading')) {
@@ -358,7 +416,7 @@
       }
     });
 
-    // ✅ Reload chart function
+    // Reload chart
     window.reloadChart = function() {
       renderAdvancedChart();
     };
