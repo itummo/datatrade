@@ -105,12 +105,12 @@
 
   <div id="auth-screen" class="auth-container">
     <h3 id="auth-title">Đăng Nhập</h3>
-    <input type="text" id="username" placeholder="Username (Tên đăng nhập)...">
+    <input type="text" id="username" placeholder="Username...">
     <input type="email" id="email" placeholder="Email...">
     <input type="password" id="password" placeholder="Mật khẩu...">
     
     <button id="btn-submit" class="btn-primary" onclick="handleAuth()">Đăng Nhập</button>
-    <button class="btn-secondary" onclick="toggleAuthMode()">Chuyển sang Đăng ký / Đăng nhập</button>
+    <button class="btn-secondary" onclick="toggleAuthMode()">Chuyển sang Đăng ký</button>
     
     <div id="msg"></div>
   </div>
@@ -122,13 +122,32 @@
   </div>
 
   <script>
-    // 🌐 DOMAIN STRAPI VPS QUA CLOUDFLARE TUNNEL
     const STRAPI_URL = 'https://api.itutrade.online'; 
     
+    // 🔐 KHÔNG lưu token trong code - lấy từ localStorage sau khi login
     let isRegisterMode = false;
     let chart = null;
+    let lastRequestTime = 0;
+    let requestCount = 0;
 
-    // 1. Kiểm tra Token khi tải trang
+    // ✅ Rate limiting client-side
+    function canMakeRequest() {
+      const now = Date.now();
+      // Reset count sau 1 phút
+      if (now - lastRequestTime > 60000) {
+        requestCount = 0;
+        lastRequestTime = now;
+      }
+      
+      // Giới hạn 10 requests/phút
+      if (requestCount >= 10) {
+        return false;
+      }
+      
+      requestCount++;
+      return true;
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       const token = localStorage.getItem('jwt_token');
       const user = JSON.parse(localStorage.getItem('user_info') || '{}');
@@ -138,15 +157,13 @@
       }
     });
 
-    // 2. Chuyển đổi giữa Đăng nhập & Đăng ký
     function toggleAuthMode() {
       isRegisterMode = !isRegisterMode;
-      document.getElementById('auth-title').innerText = isRegisterMode ? 'Đăng Ký Tài Khoản' : 'Đăng Nhập';
+      document.getElementById('auth-title').innerText = isRegisterMode ? 'Đăng Ký' : 'Đăng Nhập';
       document.getElementById('btn-submit').innerText = isRegisterMode ? 'Đăng Ký' : 'Đăng Nhập';
       document.getElementById('msg').innerText = '';
     }
 
-    // 3. Xử lý Gọi API Đăng ký / Đăng nhập từ Strapi
     async function handleAuth() {
       const username = document.getElementById('username').value.trim();
       const email = document.getElementById('email').value.trim();
@@ -154,7 +171,7 @@
       const msgDiv = document.getElementById('msg');
 
       msgDiv.style.color = '#2962ff';
-      msgDiv.innerText = 'Đang kết nối tới server...';
+      msgDiv.innerText = 'Đang kết nối...';
 
       const endpoint = isRegisterMode 
         ? `${STRAPI_URL}/api/auth/local/register` 
@@ -174,9 +191,10 @@
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error?.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại!');
+          throw new Error(data.error?.message || 'Đăng nhập thất bại!');
         }
 
+        // ✅ Lưu JWT vào localStorage (chỉ user mới biết)
         localStorage.setItem('jwt_token', data.jwt);
         localStorage.setItem('user_info', JSON.stringify(data.user));
 
@@ -191,7 +209,6 @@
       }
     }
 
-    // 4. Xử lý Đăng xuất
     function handleSignOut() {
       localStorage.removeItem('jwt_token');
       localStorage.removeItem('user_info');
@@ -200,7 +217,6 @@
       document.getElementById('user-status').classList.add('hidden');
     }
 
-    // 5. Hiển thị Dashboard & Gọi hàm render Chart
     function showDashboard(user) {
       document.getElementById('auth-screen').classList.add('hidden');
       document.getElementById('dashboard-screen').classList.remove('hidden');
@@ -210,26 +226,33 @@
       renderAdvancedChart();
     }
 
-    // 6. Tải dữ liệu Nến từ API và vẽ Lightweight Chart
     async function renderAdvancedChart() {
+      // ✅ Kiểm tra rate limit
+      if (!canMakeRequest()) {
+        const container = document.getElementById('chart-container');
+        container.innerHTML = '<div class="loading" style="color: #ff9800;">⏳ Quá nhiều yêu cầu, vui lòng đợi 1 phút</div>';
+        return;
+      }
+
       const container = document.getElementById('chart-container');
       if (!container) return;
 
-      // Hiển thị loading
-      container.innerHTML = '<div class="loading">Đang tải dữ liệu nến...</div>';
+      container.innerHTML = '<div class="loading">Đang tải dữ liệu...</div>';
 
-      // Xóa chart cũ nếu có
       if (chart) { 
         chart.remove(); 
         chart = null; 
       }
 
-      const token = localStorage.getItem('jwt_token');
-
       try {
-        // Gọi API lấy dữ liệu nến 5 phút
-        console.log('Đang gọi API:', `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`);
+        // ✅ Lấy JWT từ localStorage - KHÔNG hardcode
+        const token = localStorage.getItem('jwt_token');
         
+        if (!token) {
+          throw new Error('Vui lòng đăng nhập lại');
+        }
+
+        // ✅ Gọi API với JWT của user
         const res = await fetch(`${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -237,22 +260,34 @@
           }
         });
         
+        console.log('🔍 Response status:', res.status);
+        
+        if (res.status === 403) {
+          throw new Error('❌ Không có quyền truy cập. Vui lòng liên hệ admin để cấp quyền.');
+        }
+        
+        if (res.status === 401) {
+          // Token hết hạn
+          localStorage.removeItem('jwt_token');
+          throw new Error('⏰ Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        }
+        
         if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
+          const errorData = await res.json();
+          console.error('Error response:', errorData);
+          throw new Error(`HTTP ${res.status}: ${errorData.error?.message || 'Lỗi không xác định'}`);
         }
         
         const result = await res.json();
-        console.log('Dữ liệu nhận được:', result);
+        console.log('📊 Dữ liệu nhận được:', result);
         
-        // Kiểm tra cấu trúc dữ liệu
         if (!result.data || !Array.isArray(result.data) || result.data.length === 0) {
-          throw new Error('Không có dữ liệu nến từ API');
+          throw new Error('Không có dữ liệu nến');
         }
 
-        // Xóa loading
         container.innerHTML = '';
 
-        // Khởi tạo Lightweight Chart
+        // ✅ Khởi tạo Chart
         chart = LightweightCharts.createChart(container, {
           width: container.clientWidth,
           height: container.clientHeight,
@@ -271,9 +306,7 @@
           },
           rightPriceScale: {
             borderColor: '#2a2e39'
-          },
-          handleScroll: true,
-          handleScale: true
+          }
         });
 
         const candlestickSeries = chart.addCandlestickSeries({
@@ -285,9 +318,8 @@
           wickDownColor: '#ef5350',
         });
 
-        // Chuyển đổi dữ liệu từ API sang định dạng của Lightweight Charts
+        // ✅ Xử lý dữ liệu
         const candleData = result.data.map(item => {
-          // open_time là timestamp milliseconds
           const timeInSeconds = Math.floor(parseInt(item.open_time) / 1000);
           
           return {
@@ -299,26 +331,19 @@
           };
         });
 
-        // Sắp xếp dữ liệu theo thời gian tăng dần
         candleData.sort((a, b) => a.time - b.time);
 
-        console.log('Dữ liệu nến sau khi xử lý:', candleData);
-
-        // Nạp dữ liệu lên Chart
+        console.log(`✅ Đã xử lý ${candleData.length} nến`);
         candlestickSeries.setData(candleData);
-
-        // Tự động điều chỉnh hiển thị
         chart.timeScale().fitContent();
 
-        console.log('Chart đã được vẽ thành công!');
-
       } catch (err) {
-        console.error('Lỗi khi lấy hoặc vẽ dữ liệu:', err);
-        container.innerHTML = `<div class="loading" style="color: #ef5350;">❌ Lỗi: ${err.message}</div>`;
+        console.error('❌ Lỗi:', err);
+        container.innerHTML = `<div class="loading" style="color: #ef5350;">❌ ${err.message}</div>`;
       }
     }
 
-    // Tự động Responsive Chart khi Resize màn hình
+    // ✅ Resize handler
     window.addEventListener('resize', () => {
       const container = document.getElementById('chart-container');
       if (chart && container && !container.innerHTML.includes('loading')) {
@@ -328,12 +353,12 @@
             height: container.clientHeight 
           });
         } catch (e) {
-          console.warn('Lỗi khi resize chart:', e);
+          console.warn('Resize error:', e);
         }
       }
     });
 
-    // Hàm reload chart (có thể gọi từ console để test)
+    // ✅ Reload chart function
     window.reloadChart = function() {
       renderAdvancedChart();
     };
