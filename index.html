@@ -177,9 +177,57 @@
     .notification.error {
       background: rgba(239, 83, 80, 0.9);
     }
+    .notification.success {
+      background: rgba(76, 175, 80, 0.9);
+    }
     @keyframes slideDown {
       from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
       to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    /* Modal đăng nhập lại */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-box {
+      background: #1e222d;
+      padding: 30px;
+      border-radius: 12px;
+      max-width: 400px;
+      width: 90%;
+      border: 1px solid #2a2e39;
+    }
+    .modal-box h3 {
+      color: #fff;
+      margin-bottom: 10px;
+    }
+    .modal-box p {
+      color: #787b86;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .modal-box input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      background: #131722;
+      border: 1px solid #363a45;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    .modal-box input:focus { border-color: #2962ff; }
+    .modal-box .btn-primary {
+      width: 100%;
     }
   </style>
 </head>
@@ -194,6 +242,19 @@
     <div id="user-status" class="hidden">
       <span id="user-display" style="font-size: 13px; color: #787b86; margin-right: 10px;"></span>
       <button onclick="handleSignOut()" style="background:#f44336; border:none; color:#fff; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">Đăng xuất</button>
+    </div>
+  </div>
+
+  <!-- Modal đăng nhập lại -->
+  <div id="reLoginModal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3>⏰ Phiên đăng nhập đã hết hạn</h3>
+      <p>Vui lòng nhập lại mật khẩu để tiếp tục</p>
+      <input type="text" id="relogin-username" placeholder="Username hoặc Email...">
+      <input type="password" id="relogin-password" placeholder="Mật khẩu...">
+      <button class="btn-primary" onclick="handleReLogin()">Đăng nhập lại</button>
+      <button style="width:100%;margin-top:10px;background:transparent;border:1px solid #363a45;color:#787b86;padding:8px;border-radius:4px;cursor:pointer;" onclick="handleSignOut()">Đăng xuất</button>
+      <div id="relogin-msg" style="margin-top:10px;font-size:13px;text-align:center;color:#ef5350;"></div>
     </div>
   </div>
 
@@ -226,75 +287,146 @@
     let lastCandleTime = 0;
     let isRefreshing = false;
     let refreshCount = 0;
-    let tokenExpiryTime = null;
+    let isReLoginModalOpen = false;
 
-    // ⏱️ Cấu hình auto-refresh
     const REFRESH_INTERVAL = 10000; // 10 giây
 
-    // 🔄 Hàm refresh token
-    async function refreshToken() {
-      try {
-        console.log('🔄 Đang refresh token...');
-        
-        // Lấy thông tin user từ localStorage
-        const userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
-        const identifier = userInfo.email || userInfo.username;
-        
-        if (!identifier) {
-          throw new Error('Không có thông tin user');
+    // 📢 Hiển thị thông báo
+    function showNotification(message, type = '') {
+      const container = document.getElementById('chart-container');
+      let noti = container.querySelector('.notification');
+      
+      if (noti) noti.remove();
+      
+      noti = document.createElement('div');
+      noti.className = `notification ${type}`;
+      noti.textContent = message;
+      container.appendChild(noti);
+      
+      setTimeout(() => {
+        if (noti && noti.parentNode) {
+          noti.style.opacity = '0';
+          noti.style.transition = 'opacity 0.5s';
+          setTimeout(() => {
+            if (noti && noti.parentNode) {
+              noti.remove();
+            }
+          }, 500);
         }
+      }, 4000);
+    }
 
-        // Gọi API login để lấy token mới
+    // 🔐 Hiển thị modal đăng nhập lại
+    function showReLoginModal(message = 'Phiên đăng nhập đã hết hạn') {
+      if (isReLoginModalOpen) return;
+      isReLoginModalOpen = true;
+      
+      const modal = document.getElementById('reLoginModal');
+      modal.classList.remove('hidden');
+      document.getElementById('relogin-msg').textContent = message;
+      
+      // Tự động điền username nếu có
+      const userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
+      document.getElementById('relogin-username').value = userInfo.email || userInfo.username || '';
+    }
+
+    // 🔐 Xử lý đăng nhập lại
+    async function handleReLogin() {
+      const username = document.getElementById('relogin-username').value.trim();
+      const password = document.getElementById('relogin-password').value.trim();
+      const msgDiv = document.getElementById('relogin-msg');
+
+      if (!username || !password) {
+        msgDiv.textContent = 'Vui lòng nhập đầy đủ thông tin';
+        return;
+      }
+
+      msgDiv.textContent = 'Đang đăng nhập...';
+      msgDiv.style.color = '#2962ff';
+
+      try {
         const response = await fetch(`${STRAPI_URL}/api/auth/local`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            identifier: identifier,
-            password: localStorage.getItem('user_password') || ''
+            identifier: username,
+            password: password
           })
         });
 
+        const data = await response.json();
+
         if (!response.ok) {
-          throw new Error('Refresh token thất bại');
+          throw new Error(data.error?.message || 'Đăng nhập thất bại');
         }
 
-        const data = await response.json();
-        
         // Lưu token mới
         localStorage.setItem('jwt_token', data.jwt);
         localStorage.setItem('user_info', JSON.stringify(data.user));
-        
-        console.log('✅ Refresh token thành công!');
-        return data.jwt;
+        localStorage.setItem('user_credentials', JSON.stringify({ identifier: username, password }));
 
-      } catch (error) {
-        console.error('❌ Refresh token thất bại:', error);
-        return null;
+        msgDiv.textContent = '✅ Đăng nhập thành công!';
+        msgDiv.style.color = '#4caf50';
+
+        // Đóng modal
+        setTimeout(() => {
+          document.getElementById('reLoginModal').classList.add('hidden');
+          isReLoginModalOpen = false;
+          // Refresh lại chart
+          renderAdvancedChart();
+        }, 1000);
+
+      } catch (err) {
+        msgDiv.textContent = err.message;
+        msgDiv.style.color = '#ef5350';
       }
     }
 
-    // 🔐 Kiểm tra và refresh token nếu cần
+    // 🔐 Kiểm tra và refresh token
     async function ensureValidToken() {
       let token = localStorage.getItem('jwt_token');
       
       if (!token) {
         console.log('⛔ Không có token');
+        showReLoginModal('Vui lòng đăng nhập để tiếp tục');
         return null;
       }
 
-      // Kiểm tra token có hết hạn không (decode JWT)
+      // Kiểm tra token expiry
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
-        const exp = payload.exp * 1000; // Chuyển sang milliseconds
+        const exp = payload.exp * 1000;
         const now = Date.now();
         
-        // Nếu token sắp hết hạn (còn < 5 phút) hoặc đã hết hạn
-        if (exp - now < 300000) {
-          console.log('⏰ Token sắp hết hạn, refresh...');
-          const newToken = await refreshToken();
-          if (newToken) {
-            return newToken;
+        // Nếu token đã hết hạn
+        if (exp < now) {
+          console.log('⏰ Token đã hết hạn');
+          
+          // Thử đăng nhập lại với credentials đã lưu
+          const credentials = JSON.parse(localStorage.getItem('user_credentials') || 'null');
+          if (credentials) {
+            try {
+              const response = await fetch(`${STRAPI_URL}/api/auth/local`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(credentials)
+              });
+              
+              const data = await response.json();
+              if (response.ok) {
+                localStorage.setItem('jwt_token', data.jwt);
+                localStorage.setItem('user_info', JSON.stringify(data.user));
+                console.log('✅ Tự động đăng nhập lại thành công');
+                return data.jwt;
+              }
+            } catch (e) {
+              console.error('❌ Tự động đăng nhập lại thất bại:', e);
+            }
           }
+          
+          // Nếu không thể tự động đăng nhập, hiển thị modal
+          showReLoginModal('Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại');
+          return null;
         }
       } catch (e) {
         console.warn('Không thể decode token:', e);
@@ -303,12 +435,12 @@
       return token;
     }
 
-    // ✅ Hàm fetch với auto-refresh token
+    // ✅ Hàm fetch với xử lý 401
     async function fetchWithAuth(url, options = {}) {
       let token = await ensureValidToken();
       
       if (!token) {
-        throw new Error('Không có token hợp lệ');
+        throw new Error('Unauthorized - Vui lòng đăng nhập lại');
       }
 
       const headers = {
@@ -319,22 +451,45 @@
 
       let response = await fetch(url, { ...options, headers });
 
-      // Nếu 401, thử refresh token và gọi lại 1 lần
+      // Nếu 401, thử đăng nhập lại và gọi lại 1 lần
       if (response.status === 401) {
-        console.log('⚠️ Token hết hạn, đang refresh...');
-        const newToken = await refreshToken();
+        console.log('⚠️ Token không hợp lệ, thử đăng nhập lại...');
         
-        if (newToken) {
-          headers['Authorization'] = `Bearer ${newToken}`;
-          response = await fetch(url, { ...options, headers });
-          console.log('✅ Gọi lại API với token mới');
+        const credentials = JSON.parse(localStorage.getItem('user_credentials') || 'null');
+        if (credentials) {
+          try {
+            const loginRes = await fetch(`${STRAPI_URL}/api/auth/local`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(credentials)
+            });
+            
+            const data = await loginRes.json();
+            if (loginRes.ok) {
+              localStorage.setItem('jwt_token', data.jwt);
+              localStorage.setItem('user_info', JSON.stringify(data.user));
+              console.log('✅ Đăng nhập lại thành công, thử lại request');
+              
+              // Thử lại request với token mới
+              headers['Authorization'] = `Bearer ${data.jwt}`;
+              response = await fetch(url, { ...options, headers });
+            }
+          } catch (e) {
+            console.error('❌ Đăng nhập lại thất bại:', e);
+          }
+        }
+        
+        // Nếu vẫn 401, hiển thị modal
+        if (response.status === 401) {
+          showReLoginModal('Vui lòng đăng nhập lại để tiếp tục');
+          throw new Error('Unauthorized');
         }
       }
 
       return response;
     }
 
-    // ✅ Hàm lấy toàn bộ dữ liệu từ API
+    // ✅ Hàm lấy toàn bộ dữ liệu
     async function fetchAllData(endpoint) {
       let allData = [];
       let page = 1;
@@ -468,26 +623,20 @@
       }
     }
 
-    // 🔄 Cập nhật chart với dữ liệu mới
+    // 🔄 Cập nhật chart
     async function updateChartWithNewData() {
-      if (isRefreshing) {
-        console.log('⏳ Đang refresh, bỏ qua...');
-        return;
-      }
+      if (isRefreshing) return;
       isRefreshing = true;
       refreshCount++;
 
       try {
-        // Kiểm tra token trước
         const token = await ensureValidToken();
         if (!token) {
-          console.log('⛔ Không có token hợp lệ, yêu cầu đăng nhập');
-          handleSignOut();
-          showNotification('⏰ Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại!', 'error');
+          console.log('⛔ Không có token hợp lệ');
           return;
         }
 
-        updateStatusBar('checking', `Đang kiểm tra dữ liệu mới... (lần ${refreshCount})`);
+        updateStatusBar('checking', `Đang kiểm tra... (lần ${refreshCount})`);
 
         const newCandles = await fetchNewCandles(lastCandleTime);
         
@@ -503,66 +652,29 @@
           }));
 
           allCandleData = allCandleData.concat(newCandleData);
-          
-          if (newCandleData.length > 0) {
-            lastCandleTime = newCandleData[newCandleData.length - 1].time;
-          }
+          lastCandleTime = newCandleData[newCandleData.length - 1].time;
 
           if (candlestickSeries) {
             candlestickSeries.setData(allCandleData);
             chart.timeScale().fitContent();
             
             updateStatusBar('live', `✅ ${allCandleData.length} nến • +${newCandleData.length} mới • ${new Date().toLocaleTimeString()}`);
-            console.log(`✅ Đã cập nhật chart: ${allCandleData.length} nến (thêm ${newCandleData.length} nến)`);
-            
-            showNotification(`📊 Có ${newCandleData.length} nến mới!`);
+            showNotification(`📊 Có ${newCandleData.length} nến mới!`, 'success');
           }
         } else {
-          updateStatusBar('live', `${allCandleData.length} nến • Không có dữ liệu mới • ${new Date().toLocaleTimeString()}`);
-          console.log(`ℹ️ Không có nến mới (lần ${refreshCount})`);
+          updateStatusBar('live', `${allCandleData.length} nến • Không có mới • ${new Date().toLocaleTimeString()}`);
         }
 
       } catch (error) {
         console.error('❌ Lỗi cập nhật:', error);
-        updateStatusBar('error', `Lỗi: ${error.message}`);
-        
-        if (error.message.includes('401') || error.message.includes('403')) {
-          showNotification('⏰ Token hết hạn, đang refresh...', 'error');
-          // Thử refresh token
-          const newToken = await refreshToken();
-          if (newToken) {
-            console.log('✅ Đã refresh token, thử lại...');
-            setTimeout(() => updateChartWithNewData(), 2000);
-          }
+        if (error.message === 'Unauthorized') {
+          // Đã có modal hiển thị từ fetchWithAuth
+        } else {
+          updateStatusBar('error', `Lỗi: ${error.message}`);
         }
       } finally {
         isRefreshing = false;
       }
-    }
-
-    // 📢 Hiển thị thông báo
-    function showNotification(message, type = '') {
-      const container = document.getElementById('chart-container');
-      let noti = container.querySelector('.notification');
-      
-      if (noti) noti.remove();
-      
-      noti = document.createElement('div');
-      noti.className = `notification ${type}`;
-      noti.textContent = message;
-      container.appendChild(noti);
-      
-      setTimeout(() => {
-        if (noti && noti.parentNode) {
-          noti.style.opacity = '0';
-          noti.style.transition = 'opacity 0.5s';
-          setTimeout(() => {
-            if (noti && noti.parentNode) {
-              noti.remove();
-            }
-          }, 500);
-        }
-      }, 3000);
     }
 
     // 📊 Cập nhật status bar
@@ -585,31 +697,24 @@
       `;
     }
 
-    // 🔄 Manual refresh
     window.manualRefresh = function() {
-      console.log('🔄 Manual refresh được kích hoạt');
+      console.log('🔄 Manual refresh');
       updateChartWithNewData();
     };
 
-    // ⏹️ Dừng auto-refresh
     function stopAutoRefresh() {
       if (autoRefreshInterval) {
         clearInterval(autoRefreshInterval);
         autoRefreshInterval = null;
-        console.log('⏹️ Đã dừng auto-refresh');
       }
     }
 
-    // ▶️ Bắt đầu auto-refresh
     function startAutoRefresh() {
       stopAutoRefresh();
       refreshCount = 0;
-      setTimeout(() => {
-        updateChartWithNewData();
-      }, 2000);
-      
+      setTimeout(() => updateChartWithNewData(), 2000);
       autoRefreshInterval = setInterval(updateChartWithNewData, REFRESH_INTERVAL);
-      console.log(`▶️ Bắt đầu auto-refresh mỗi ${REFRESH_INTERVAL/1000} giây`);
+      console.log(`▶️ Auto-refresh mỗi ${REFRESH_INTERVAL/1000} giây`);
     }
 
     // ============ PHẦN CHÍNH ============
@@ -659,8 +764,11 @@
           throw new Error(data.error?.message || 'Đăng nhập thất bại!');
         }
 
-        // Lưu password để refresh token
-        localStorage.setItem('user_password', password);
+        // Lưu credentials để tự động đăng nhập lại
+        localStorage.setItem('user_credentials', JSON.stringify({ 
+          identifier: email || username, 
+          password: password 
+        }));
         localStorage.setItem('jwt_token', data.jwt);
         localStorage.setItem('user_info', JSON.stringify(data.user));
 
@@ -679,14 +787,12 @@
       stopAutoRefresh();
       localStorage.removeItem('jwt_token');
       localStorage.removeItem('user_info');
-      localStorage.removeItem('user_password');
+      localStorage.removeItem('user_credentials');
       document.getElementById('auth-screen').classList.remove('hidden');
       document.getElementById('dashboard-screen').classList.add('hidden');
       document.getElementById('user-status').classList.add('hidden');
-      
-      const container = document.getElementById('chart-container');
-      const statusBar = container.querySelector('.status-bar');
-      if (statusBar) statusBar.remove();
+      document.getElementById('reLoginModal').classList.add('hidden');
+      isReLoginModalOpen = false;
     }
 
     function showDashboard(user) {
@@ -694,7 +800,6 @@
       document.getElementById('dashboard-screen').classList.remove('hidden');
       document.getElementById('user-status').classList.remove('hidden');
       document.getElementById('user-display').innerText = user.email || user.username;
-
       renderAdvancedChart();
     }
 
@@ -703,14 +808,13 @@
       if (!container) return;
 
       container.innerHTML = '<div class="loading">Đang tải dữ liệu nến...</div>';
-
       stopAutoRefresh();
 
       try {
-        // Kiểm tra token
         const token = await ensureValidToken();
         if (!token) {
-          throw new Error('Vui lòng đăng nhập lại');
+          container.innerHTML = '<div class="loading" style="color: #ff9800;">⏰ Vui lòng đăng nhập lại</div>';
+          return;
         }
 
         const endpoint = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`;
@@ -731,7 +835,6 @@
         }));
 
         allCandleData.sort((a, b) => a.time - b.time);
-
         lastCandleTime = allCandleData[allCandleData.length - 1].time;
 
         console.log(`✅ Đã xử lý ${allCandleData.length} nến`);
@@ -746,7 +849,6 @@
       }
     }
 
-    // Resize handler
     window.addEventListener('resize', () => {
       const container = document.getElementById('chart-container');
       if (chart && container && !container.innerHTML.includes('loading')) {
@@ -755,9 +857,7 @@
             width: container.clientWidth, 
             height: container.clientHeight 
           });
-        } catch (e) {
-          console.warn('Resize error:', e);
-        }
+        } catch (e) {}
       }
     });
 
