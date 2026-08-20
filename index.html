@@ -136,10 +136,28 @@
     .status-dot.error {
       background: #ef5350;
     }
+    .status-dot.checking {
+      background: #ff9800;
+      animation: pulse 1s infinite;
+    }
     @keyframes pulse {
       0% { opacity: 1; }
       50% { opacity: 0.3; }
       100% { opacity: 1; }
+    }
+    .refresh-btn {
+      background: transparent;
+      border: 1px solid #363a45;
+      color: #787b86;
+      padding: 4px 10px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.3s;
+    }
+    .refresh-btn:hover {
+      border-color: #2962ff;
+      color: #fff;
     }
   </style>
 </head>
@@ -185,17 +203,17 @@
     let allCandleData = [];
     let lastCandleTime = 0;
     let isRefreshing = false;
+    let refreshCount = 0;
 
-    // ⏱️ Cấu hình auto-refresh
-    const REFRESH_INTERVAL = 30000; // 30 giây (phù hợp với nến 5 phút)
-    // const REFRESH_INTERVAL = 60000; // 1 phút
-    // const REFRESH_INTERVAL = 300000; // 5 phút
+    // ⏱️ Cấu hình auto-refresh - kiểm tra thường xuyên hơn
+    const REFRESH_INTERVAL = 10000; // 10 giây (kiểm tra nến mới)
+    // const REFRESH_INTERVAL = 30000; // 30 giây
 
     // ✅ Hàm lấy toàn bộ dữ liệu từ API
     async function fetchAllData(endpoint, token) {
       let allData = [];
       let page = 1;
-      const pageSize = 100; // Tăng lên 100 để giảm số lần gọi
+      const pageSize = 100;
       let hasMore = true;
       let totalItems = 0;
 
@@ -299,11 +317,17 @@
       updateStatusBar('live', `${data.length} nến • Cập nhật: ${new Date().toLocaleTimeString()}`);
     }
 
-    // 📊 Cập nhật dữ liệu mới (chỉ lấy nến mới nhất)
+    // 📊 Cập nhật dữ liệu mới - CẢI TIẾN: Lấy tất cả dữ liệu mới hơn lastTime
     async function fetchNewCandles(token, lastTime) {
       try {
-        // Chỉ lấy dữ liệu mới hơn lastTime
-        const url = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms?sort=open_time:desc&pagination[page]=1&pagination[pageSize]=10`;
+        // ✅ Cách 1: Lấy tất cả dữ liệu mới hơn lastTime (chính xác nhất)
+        // Chuyển lastTime thành timestamp milliseconds để so sánh
+        const lastTimeMs = lastTime * 1000;
+        
+        // Sử dụng filter để lấy dữ liệu mới hơn
+        const url = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms?filters[open_time][$gt]=${lastTimeMs}&sort=open_time:asc&pagination[page]=1&pagination[pageSize]=100`;
+        
+        console.log(`🔍 Kiểm tra dữ liệu mới từ: ${new Date(lastTimeMs).toLocaleString()}`);
         
         const response = await fetch(url, {
           headers: {
@@ -322,17 +346,12 @@
           return [];
         }
 
-        // Lọc những nến mới hơn lastTime
-        const newCandles = result.data.filter(item => {
-          const time = Math.floor(parseInt(item.open_time) / 1000);
-          return time > lastTime;
-        });
+        console.log(`📥 Tìm thấy ${result.data.length} bản ghi mới`);
 
         // Sắp xếp tăng dần theo thời gian
-        newCandles.sort((a, b) => parseInt(a.open_time) - parseInt(b.open_time));
+        result.data.sort((a, b) => parseInt(a.open_time) - parseInt(b.open_time));
 
-        console.log(`🆕 Phát hiện ${newCandles.length} nến mới`);
-        return newCandles;
+        return result.data;
 
       } catch (error) {
         console.error('❌ Lỗi khi lấy nến mới:', error);
@@ -342,19 +361,29 @@
 
     // 🔄 Cập nhật chart với dữ liệu mới
     async function updateChartWithNewData() {
-      if (isRefreshing) return;
+      if (isRefreshing) {
+        console.log('⏳ Đang refresh, bỏ qua...');
+        return;
+      }
       isRefreshing = true;
+      refreshCount++;
 
       try {
         const token = localStorage.getItem('jwt_token');
         if (!token) {
+          console.log('⛔ Không có token, dừng auto-refresh');
           stopAutoRefresh();
           return;
         }
 
+        // Hiển thị trạng thái đang kiểm tra
+        updateStatusBar('checking', `Đang kiểm tra dữ liệu mới... (lần ${refreshCount})`);
+
         const newCandles = await fetchNewCandles(token, lastCandleTime);
         
-        if (newCandles.length > 0) {
+        if (newCandles && newCandles.length > 0) {
+          console.log(`🆕 PHÁT HIỆN ${newCandles.length} NẾN MỚI!`);
+          
           // Chuyển đổi dữ liệu mới
           const newCandleData = newCandles.map(item => ({
             time: Math.floor(parseInt(item.open_time) / 1000),
@@ -378,21 +407,77 @@
             chart.timeScale().fitContent();
             
             // Cập nhật status
-            updateStatusBar('live', `${allCandleData.length} nến • Cập nhật: ${new Date().toLocaleTimeString()}`);
-            console.log(`✅ Đã cập nhật chart với ${newCandleData.length} nến mới`);
+            updateStatusBar('live', `✅ ${allCandleData.length} nến • +${newCandleData.length} mới • ${new Date().toLocaleTimeString()}`);
+            console.log(`✅ Đã cập nhật chart: ${allCandleData.length} nến (thêm ${newCandleData.length} nến)`);
+            
+            // Hiển thị thông báo
+            showNotification(`📊 Có ${newCandleData.length} nến mới!`);
           }
         } else {
           // Không có dữ liệu mới
           updateStatusBar('live', `${allCandleData.length} nến • Không có dữ liệu mới • ${new Date().toLocaleTimeString()}`);
+          console.log(`ℹ️ Không có nến mới (lần ${refreshCount})`);
         }
 
       } catch (error) {
         console.error('❌ Lỗi cập nhật:', error);
-        updateStatusBar('error', 'Lỗi kết nối');
+        updateStatusBar('error', `Lỗi: ${error.message}`);
       } finally {
         isRefreshing = false;
       }
     }
+
+    // 📢 Hiển thị thông báo
+    function showNotification(message) {
+      const container = document.getElementById('chart-container');
+      let noti = container.querySelector('.notification');
+      
+      if (!noti) {
+        noti = document.createElement('div');
+        noti.className = 'notification';
+        noti.style.cssText = `
+          position: absolute;
+          top: 20px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(41, 98, 255, 0.9);
+          padding: 8px 20px;
+          border-radius: 20px;
+          font-size: 14px;
+          color: #fff;
+          z-index: 20;
+          animation: slideDown 0.5s ease;
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255,255,255,0.1);
+        `;
+        container.appendChild(noti);
+        
+        // Tự động ẩn sau 3 giây
+        setTimeout(() => {
+          if (noti) {
+            noti.style.opacity = '0';
+            noti.style.transition = 'opacity 0.5s';
+            setTimeout(() => {
+              if (noti && noti.parentNode) {
+                noti.remove();
+              }
+            }, 500);
+          }
+        }, 3000);
+      }
+      
+      noti.textContent = message;
+    }
+
+    // Thêm CSS animation cho notification
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes slideDown {
+        from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0); }
+      }
+    `;
+    document.head.appendChild(style);
 
     // 📊 Cập nhật status bar
     function updateStatusBar(status, text) {
@@ -405,13 +490,20 @@
         container.appendChild(statusBar);
       }
 
-      const dotClass = status === 'live' ? 'live' : 'error';
+      const dotClass = status === 'live' ? 'live' : (status === 'checking' ? 'checking' : 'error');
       statusBar.innerHTML = `
         <span class="status-dot ${dotClass}"></span>
         <span>${text}</span>
+        <button class="refresh-btn" onclick="manualRefresh()">⟳ Refresh</button>
         ${status === 'live' ? '<span style="font-size:10px;opacity:0.5;">● Live</span>' : ''}
       `;
     }
+
+    // 🔄 Manual refresh (nút Refresh)
+    window.manualRefresh = function() {
+      console.log('🔄 Manual refresh được kích hoạt');
+      updateChartWithNewData();
+    };
 
     // ⏹️ Dừng auto-refresh
     function stopAutoRefresh() {
@@ -425,6 +517,12 @@
     // ▶️ Bắt đầu auto-refresh
     function startAutoRefresh() {
       stopAutoRefresh();
+      refreshCount = 0;
+      // Chạy ngay lần đầu
+      setTimeout(() => {
+        updateChartWithNewData();
+      }, 1000);
+      
       autoRefreshInterval = setInterval(updateChartWithNewData, REFRESH_INTERVAL);
       console.log(`▶️ Bắt đầu auto-refresh mỗi ${REFRESH_INTERVAL/1000} giây`);
     }
@@ -497,6 +595,11 @@
       document.getElementById('auth-screen').classList.remove('hidden');
       document.getElementById('dashboard-screen').classList.add('hidden');
       document.getElementById('user-status').classList.add('hidden');
+      
+      // Xóa status bar
+      const container = document.getElementById('chart-container');
+      const statusBar = container.querySelector('.status-bar');
+      if (statusBar) statusBar.remove();
     }
 
     function showDashboard(user) {
@@ -586,6 +689,9 @@
     window.addEventListener('beforeunload', () => {
       stopAutoRefresh();
     });
+
+    console.log('🚀 Trading LightWebview đã sẵn sàng!');
+    console.log(`⏱️ Auto-refresh mỗi ${REFRESH_INTERVAL/1000} giây`);
   </script>
 </body>
 </html>
