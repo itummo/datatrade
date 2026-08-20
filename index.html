@@ -1,9 +1,776 @@
-async function fetchWithAuth(url, options) {
-  let response = await fetch(url, headers);
-  if (response.status === 401) {
-    // Refresh token và thử lại
-    const newToken = await refreshToken();
-    response = await fetch(url, headers);
-  }
-  return response;
-}
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trading Light Webview Pro - Strapi Charts</title>
+  
+  <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+      background-color: #131722; 
+      color: #d1d4dc; 
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .navbar {
+      background-color: #1e222d;
+      border-bottom: 1px solid #2a2e39;
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand { font-size: 15px; font-weight: bold; color: #2962ff; }
+    
+    .auth-container {
+      max-width: 360px;
+      margin: auto;
+      padding: 24px;
+      background: #1e222d;
+      border: 1px solid #2a2e39;
+      border-radius: 8px;
+      width: 90%;
+    }
+    .auth-container h3 { margin-bottom: 16px; font-size: 18px; text-align: center; color: #fff; }
+    .auth-container input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      background: #131722;
+      border: 1px solid #363a45;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    .auth-container input:focus { border-color: #2962ff; }
+    .btn-primary {
+      width: 100%;
+      padding: 10px;
+      background: #2962ff;
+      border: none;
+      color: white;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn-primary:hover { background: #1e54e4; }
+    .btn-secondary {
+      width: 100%;
+      padding: 8px;
+      background: transparent;
+      border: 1px solid #363a45;
+      color: #787b86;
+      border-radius: 4px;
+      margin-top: 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn-secondary:hover { color: #fff; border-color: #787b86; }
+    
+    .chart-wrapper {
+      flex: 1;
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    #chart-container {
+      width: 100%;
+      height: 100%;
+    }
+
+    .hidden { display: none !important; }
+    #msg { margin-top: 10px; font-size: 13px; text-align: center; }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #787b86;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: #1f2937;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 9999;
+    }
+    .progress-bar .progress {
+      height: 100%;
+      background: #2962ff;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .status-bar {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(19, 23, 34, 0.9);
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      color: #787b86;
+      border: 1px solid #2a2e39;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      backdrop-filter: blur(10px);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot.live {
+      background: #4caf50;
+      animation: pulse 2s infinite;
+    }
+    .status-dot.error {
+      background: #ef5350;
+    }
+    .status-dot.checking {
+      background: #ff9800;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.3; }
+      100% { opacity: 1; }
+    }
+    .refresh-btn {
+      background: transparent;
+      border: 1px solid #363a45;
+      color: #787b86;
+      padding: 4px 10px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.3s;
+    }
+    .refresh-btn:hover {
+      border-color: #2962ff;
+      color: #fff;
+    }
+    .notification {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(41, 98, 255, 0.9);
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      color: #fff;
+      z-index: 20;
+      animation: slideDown 0.5s ease;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .notification.error {
+      background: rgba(239, 83, 80, 0.9);
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="progress-bar" id="progressBar">
+    <div class="progress" id="progress"></div>
+  </div>
+
+  <div class="navbar">
+    <div class="brand">📈 TRADING LIGHTWEB - STRAPI API</div>
+    <div id="user-status" class="hidden">
+      <span id="user-display" style="font-size: 13px; color: #787b86; margin-right: 10px;"></span>
+      <button onclick="handleSignOut()" style="background:#f44336; border:none; color:#fff; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">Đăng xuất</button>
+    </div>
+  </div>
+
+  <div id="auth-screen" class="auth-container">
+    <h3 id="auth-title">Đăng Nhập</h3>
+    <input type="text" id="username" placeholder="Username...">
+    <input type="email" id="email" placeholder="Email...">
+    <input type="password" id="password" placeholder="Mật khẩu...">
+    
+    <button id="btn-submit" class="btn-primary" onclick="handleAuth()">Đăng Nhập</button>
+    <button class="btn-secondary" onclick="toggleAuthMode()">Chuyển sang Đăng ký</button>
+    
+    <div id="msg"></div>
+  </div>
+
+  <div id="dashboard-screen" class="chart-wrapper hidden">
+    <div id="chart-container">
+      <div class="loading">Đang tải dữ liệu...</div>
+    </div>
+  </div>
+
+  <script>
+    const STRAPI_URL = 'https://api.itutrade.online'; 
+    
+    let isRegisterMode = false;
+    let chart = null;
+    let candlestickSeries = null;
+    let autoRefreshInterval = null;
+    let allCandleData = [];
+    let lastCandleTime = 0;
+    let isRefreshing = false;
+    let refreshCount = 0;
+    let tokenExpiryTime = null;
+
+    // ⏱️ Cấu hình auto-refresh
+    const REFRESH_INTERVAL = 10000; // 10 giây
+
+    // 🔄 Hàm refresh token
+    async function refreshToken() {
+      try {
+        console.log('🔄 Đang refresh token...');
+        
+        // Lấy thông tin user từ localStorage
+        const userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
+        const identifier = userInfo.email || userInfo.username;
+        
+        if (!identifier) {
+          throw new Error('Không có thông tin user');
+        }
+
+        // Gọi API login để lấy token mới
+        const response = await fetch(`${STRAPI_URL}/api/auth/local`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identifier: identifier,
+            password: localStorage.getItem('user_password') || ''
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Refresh token thất bại');
+        }
+
+        const data = await response.json();
+        
+        // Lưu token mới
+        localStorage.setItem('jwt_token', data.jwt);
+        localStorage.setItem('user_info', JSON.stringify(data.user));
+        
+        console.log('✅ Refresh token thành công!');
+        return data.jwt;
+
+      } catch (error) {
+        console.error('❌ Refresh token thất bại:', error);
+        return null;
+      }
+    }
+
+    // 🔐 Kiểm tra và refresh token nếu cần
+    async function ensureValidToken() {
+      let token = localStorage.getItem('jwt_token');
+      
+      if (!token) {
+        console.log('⛔ Không có token');
+        return null;
+      }
+
+      // Kiểm tra token có hết hạn không (decode JWT)
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const exp = payload.exp * 1000; // Chuyển sang milliseconds
+        const now = Date.now();
+        
+        // Nếu token sắp hết hạn (còn < 5 phút) hoặc đã hết hạn
+        if (exp - now < 300000) {
+          console.log('⏰ Token sắp hết hạn, refresh...');
+          const newToken = await refreshToken();
+          if (newToken) {
+            return newToken;
+          }
+        }
+      } catch (e) {
+        console.warn('Không thể decode token:', e);
+      }
+
+      return token;
+    }
+
+    // ✅ Hàm fetch với auto-refresh token
+    async function fetchWithAuth(url, options = {}) {
+      let token = await ensureValidToken();
+      
+      if (!token) {
+        throw new Error('Không có token hợp lệ');
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options.headers
+      };
+
+      let response = await fetch(url, { ...options, headers });
+
+      // Nếu 401, thử refresh token và gọi lại 1 lần
+      if (response.status === 401) {
+        console.log('⚠️ Token hết hạn, đang refresh...');
+        const newToken = await refreshToken();
+        
+        if (newToken) {
+          headers['Authorization'] = `Bearer ${newToken}`;
+          response = await fetch(url, { ...options, headers });
+          console.log('✅ Gọi lại API với token mới');
+        }
+      }
+
+      return response;
+    }
+
+    // ✅ Hàm lấy toàn bộ dữ liệu từ API
+    async function fetchAllData(endpoint) {
+      let allData = [];
+      let page = 1;
+      const pageSize = 100;
+      let hasMore = true;
+      let totalItems = 0;
+
+      const progress = document.getElementById('progress');
+      
+      try {
+        while (hasMore) {
+          const url = `${endpoint}?pagination[page]=${page}&pagination[pageSize]=${pageSize}&sort=open_time:asc`;
+          console.log(`📥 Đang tải trang ${page}...`);
+          
+          const response = await fetchWithAuth(url);
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const result = await response.json();
+          
+          if (page === 1 && result.meta?.pagination?.total) {
+            totalItems = result.meta.pagination.total;
+            console.log(`📊 Tổng số bản ghi: ${totalItems}`);
+          }
+
+          if (result.data && Array.isArray(result.data)) {
+            allData = allData.concat(result.data);
+            console.log(`✅ Trang ${page}: đã lấy ${result.data.length} bản ghi (tổng: ${allData.length})`);
+          }
+
+          if (result.meta?.pagination?.pageCount) {
+            const totalPages = result.meta.pagination.pageCount;
+            hasMore = page < totalPages;
+            page++;
+            
+            const progressPercent = totalItems > 0 ? (allData.length / totalItems) * 100 : 0;
+            progress.style.width = `${Math.min(progressPercent, 100)}%`;
+          } else {
+            hasMore = false;
+          }
+        }
+
+        progress.style.width = '100%';
+        setTimeout(() => {
+          progress.style.width = '0%';
+        }, 500);
+
+        console.log(`🎯 Hoàn thành! Tổng cộng ${allData.length} bản ghi`);
+        return allData;
+
+      } catch (error) {
+        console.error('❌ Lỗi khi tải dữ liệu:', error);
+        throw error;
+      }
+    }
+
+    // 🎨 Vẽ chart
+    function drawChart(container, data) {
+      if (chart) {
+        chart.remove();
+        chart = null;
+      }
+
+      chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: container.clientHeight,
+        layout: { 
+          backgroundColor: '#131722', 
+          textColor: '#d1d4dc' 
+        },
+        grid: { 
+          vertLines: { color: '#1f2937' }, 
+          horzLines: { color: '#1f2937' } 
+        },
+        timeScale: { 
+          timeVisible: true, 
+          secondsVisible: false,
+          borderColor: '#2a2e39'
+        },
+        rightPriceScale: {
+          borderColor: '#2a2e39'
+        }
+      });
+
+      candlestickSeries = chart.addCandlestickSeries({
+        upColor: '#26a69a', 
+        downColor: '#ef5350',
+        borderUpColor: '#26a69a', 
+        borderDownColor: '#ef5350',
+        wickUpColor: '#26a69a', 
+        wickDownColor: '#ef5350',
+      });
+
+      candlestickSeries.setData(data);
+      chart.timeScale().fitContent();
+
+      updateStatusBar('live', `${data.length} nến • Cập nhật: ${new Date().toLocaleTimeString()}`);
+    }
+
+    // 📊 Cập nhật dữ liệu mới
+    async function fetchNewCandles(lastTime) {
+      try {
+        const lastTimeMs = lastTime * 1000;
+        
+        const url = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms?filters[open_time][$gt]=${lastTimeMs}&sort=open_time:asc&pagination[page]=1&pagination[pageSize]=100`;
+        
+        console.log(`🔍 Kiểm tra dữ liệu mới từ: ${new Date(lastTimeMs).toLocaleString()}`);
+        
+        const response = await fetchWithAuth(url);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (!result.data || !Array.isArray(result.data)) {
+          return [];
+        }
+
+        console.log(`📥 Tìm thấy ${result.data.length} bản ghi mới`);
+        result.data.sort((a, b) => parseInt(a.open_time) - parseInt(b.open_time));
+
+        return result.data;
+
+      } catch (error) {
+        console.error('❌ Lỗi khi lấy nến mới:', error);
+        return [];
+      }
+    }
+
+    // 🔄 Cập nhật chart với dữ liệu mới
+    async function updateChartWithNewData() {
+      if (isRefreshing) {
+        console.log('⏳ Đang refresh, bỏ qua...');
+        return;
+      }
+      isRefreshing = true;
+      refreshCount++;
+
+      try {
+        // Kiểm tra token trước
+        const token = await ensureValidToken();
+        if (!token) {
+          console.log('⛔ Không có token hợp lệ, yêu cầu đăng nhập');
+          handleSignOut();
+          showNotification('⏰ Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại!', 'error');
+          return;
+        }
+
+        updateStatusBar('checking', `Đang kiểm tra dữ liệu mới... (lần ${refreshCount})`);
+
+        const newCandles = await fetchNewCandles(lastCandleTime);
+        
+        if (newCandles && newCandles.length > 0) {
+          console.log(`🆕 PHÁT HIỆN ${newCandles.length} NẾN MỚI!`);
+          
+          const newCandleData = newCandles.map(item => ({
+            time: Math.floor(parseInt(item.open_time) / 1000),
+            open: parseFloat(item.open_ashi),
+            high: parseFloat(item.high_ashi),
+            low: parseFloat(item.low_ashi),
+            close: parseFloat(item.close_ashi)
+          }));
+
+          allCandleData = allCandleData.concat(newCandleData);
+          
+          if (newCandleData.length > 0) {
+            lastCandleTime = newCandleData[newCandleData.length - 1].time;
+          }
+
+          if (candlestickSeries) {
+            candlestickSeries.setData(allCandleData);
+            chart.timeScale().fitContent();
+            
+            updateStatusBar('live', `✅ ${allCandleData.length} nến • +${newCandleData.length} mới • ${new Date().toLocaleTimeString()}`);
+            console.log(`✅ Đã cập nhật chart: ${allCandleData.length} nến (thêm ${newCandleData.length} nến)`);
+            
+            showNotification(`📊 Có ${newCandleData.length} nến mới!`);
+          }
+        } else {
+          updateStatusBar('live', `${allCandleData.length} nến • Không có dữ liệu mới • ${new Date().toLocaleTimeString()}`);
+          console.log(`ℹ️ Không có nến mới (lần ${refreshCount})`);
+        }
+
+      } catch (error) {
+        console.error('❌ Lỗi cập nhật:', error);
+        updateStatusBar('error', `Lỗi: ${error.message}`);
+        
+        if (error.message.includes('401') || error.message.includes('403')) {
+          showNotification('⏰ Token hết hạn, đang refresh...', 'error');
+          // Thử refresh token
+          const newToken = await refreshToken();
+          if (newToken) {
+            console.log('✅ Đã refresh token, thử lại...');
+            setTimeout(() => updateChartWithNewData(), 2000);
+          }
+        }
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    // 📢 Hiển thị thông báo
+    function showNotification(message, type = '') {
+      const container = document.getElementById('chart-container');
+      let noti = container.querySelector('.notification');
+      
+      if (noti) noti.remove();
+      
+      noti = document.createElement('div');
+      noti.className = `notification ${type}`;
+      noti.textContent = message;
+      container.appendChild(noti);
+      
+      setTimeout(() => {
+        if (noti && noti.parentNode) {
+          noti.style.opacity = '0';
+          noti.style.transition = 'opacity 0.5s';
+          setTimeout(() => {
+            if (noti && noti.parentNode) {
+              noti.remove();
+            }
+          }, 500);
+        }
+      }, 3000);
+    }
+
+    // 📊 Cập nhật status bar
+    function updateStatusBar(status, text) {
+      const container = document.getElementById('chart-container');
+      let statusBar = container.querySelector('.status-bar');
+      
+      if (!statusBar) {
+        statusBar = document.createElement('div');
+        statusBar.className = 'status-bar';
+        container.appendChild(statusBar);
+      }
+
+      const dotClass = status === 'live' ? 'live' : (status === 'checking' ? 'checking' : 'error');
+      statusBar.innerHTML = `
+        <span class="status-dot ${dotClass}"></span>
+        <span>${text}</span>
+        <button class="refresh-btn" onclick="manualRefresh()">⟳ Refresh</button>
+        ${status === 'live' ? '<span style="font-size:10px;opacity:0.5;">● Live</span>' : ''}
+      `;
+    }
+
+    // 🔄 Manual refresh
+    window.manualRefresh = function() {
+      console.log('🔄 Manual refresh được kích hoạt');
+      updateChartWithNewData();
+    };
+
+    // ⏹️ Dừng auto-refresh
+    function stopAutoRefresh() {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+        console.log('⏹️ Đã dừng auto-refresh');
+      }
+    }
+
+    // ▶️ Bắt đầu auto-refresh
+    function startAutoRefresh() {
+      stopAutoRefresh();
+      refreshCount = 0;
+      setTimeout(() => {
+        updateChartWithNewData();
+      }, 2000);
+      
+      autoRefreshInterval = setInterval(updateChartWithNewData, REFRESH_INTERVAL);
+      console.log(`▶️ Bắt đầu auto-refresh mỗi ${REFRESH_INTERVAL/1000} giây`);
+    }
+
+    // ============ PHẦN CHÍNH ============
+    window.addEventListener('DOMContentLoaded', () => {
+      const token = localStorage.getItem('jwt_token');
+      const user = JSON.parse(localStorage.getItem('user_info') || '{}');
+
+      if (token && user) {
+        showDashboard(user);
+      }
+    });
+
+    function toggleAuthMode() {
+      isRegisterMode = !isRegisterMode;
+      document.getElementById('auth-title').innerText = isRegisterMode ? 'Đăng Ký' : 'Đăng Nhập';
+      document.getElementById('btn-submit').innerText = isRegisterMode ? 'Đăng Ký' : 'Đăng Nhập';
+      document.getElementById('msg').innerText = '';
+    }
+
+    async function handleAuth() {
+      const username = document.getElementById('username').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value.trim();
+      const msgDiv = document.getElementById('msg');
+
+      msgDiv.style.color = '#2962ff';
+      msgDiv.innerText = 'Đang kết nối...';
+
+      const endpoint = isRegisterMode 
+        ? `${STRAPI_URL}/api/auth/local/register` 
+        : `${STRAPI_URL}/api/auth/local`;
+
+      const payload = isRegisterMode 
+        ? { username, email, password }
+        : { identifier: email || username, password };
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error?.message || 'Đăng nhập thất bại!');
+        }
+
+        // Lưu password để refresh token
+        localStorage.setItem('user_password', password);
+        localStorage.setItem('jwt_token', data.jwt);
+        localStorage.setItem('user_info', JSON.stringify(data.user));
+
+        msgDiv.style.color = '#4caf50';
+        msgDiv.innerText = 'Thành công!';
+        
+        showDashboard(data.user);
+
+      } catch (err) {
+        msgDiv.style.color = '#f44336';
+        msgDiv.innerText = err.message;
+      }
+    }
+
+    function handleSignOut() {
+      stopAutoRefresh();
+      localStorage.removeItem('jwt_token');
+      localStorage.removeItem('user_info');
+      localStorage.removeItem('user_password');
+      document.getElementById('auth-screen').classList.remove('hidden');
+      document.getElementById('dashboard-screen').classList.add('hidden');
+      document.getElementById('user-status').classList.add('hidden');
+      
+      const container = document.getElementById('chart-container');
+      const statusBar = container.querySelector('.status-bar');
+      if (statusBar) statusBar.remove();
+    }
+
+    function showDashboard(user) {
+      document.getElementById('auth-screen').classList.add('hidden');
+      document.getElementById('dashboard-screen').classList.remove('hidden');
+      document.getElementById('user-status').classList.remove('hidden');
+      document.getElementById('user-display').innerText = user.email || user.username;
+
+      renderAdvancedChart();
+    }
+
+    async function renderAdvancedChart() {
+      const container = document.getElementById('chart-container');
+      if (!container) return;
+
+      container.innerHTML = '<div class="loading">Đang tải dữ liệu nến...</div>';
+
+      stopAutoRefresh();
+
+      try {
+        // Kiểm tra token
+        const token = await ensureValidToken();
+        if (!token) {
+          throw new Error('Vui lòng đăng nhập lại');
+        }
+
+        const endpoint = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`;
+        const rawData = await fetchAllData(endpoint);
+
+        if (!rawData || rawData.length === 0) {
+          throw new Error('Không có dữ liệu nến');
+        }
+
+        container.innerHTML = '';
+
+        allCandleData = rawData.map(item => ({
+          time: Math.floor(parseInt(item.open_time) / 1000),
+          open: parseFloat(item.open_ashi),
+          high: parseFloat(item.high_ashi),
+          low: parseFloat(item.low_ashi),
+          close: parseFloat(item.close_ashi)
+        }));
+
+        allCandleData.sort((a, b) => a.time - b.time);
+
+        lastCandleTime = allCandleData[allCandleData.length - 1].time;
+
+        console.log(`✅ Đã xử lý ${allCandleData.length} nến`);
+        console.log(`📅 Nến cuối cùng: ${new Date(lastCandleTime * 1000).toLocaleString()}`);
+
+        drawChart(container, allCandleData);
+        startAutoRefresh();
+
+      } catch (err) {
+        console.error('❌ Lỗi:', err);
+        container.innerHTML = `<div class="loading" style="color: #ef5350;">❌ ${err.message}</div>`;
+      }
+    }
+
+    // Resize handler
+    window.addEventListener('resize', () => {
+      const container = document.getElementById('chart-container');
+      if (chart && container && !container.innerHTML.includes('loading')) {
+        try {
+          chart.applyOptions({ 
+            width: container.clientWidth, 
+            height: container.clientHeight 
+          });
+        } catch (e) {
+          console.warn('Resize error:', e);
+        }
+      }
+    });
+
+    window.reloadChart = function() {
+      renderAdvancedChart();
+    };
+
+    window.addEventListener('beforeunload', () => {
+      stopAutoRefresh();
+    });
+
+    console.log('🚀 Trading LightWebview đã sẵn sàng!');
+    console.log(`⏱️ Auto-refresh mỗi ${REFRESH_INTERVAL/1000} giây`);
+  </script>
+</body>
+</html>
