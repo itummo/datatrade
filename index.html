@@ -588,97 +588,79 @@
     }
 
     // 🎨 Vẽ các line ngang
-    function drawHorizontalLines(linesData, candleData) {
-      // Xóa các line cũ
-      lineSeriesList.forEach(series => {
-        if (chart) {
-          chart.removeSeries(series);
-        }
-      });
-      lineSeriesList = [];
+   // 🎨 Vẽ các line ngang
+function drawHorizontalLines(linesData, candleData) {
+  lineSeriesList.forEach(series => {
+    if (chart) {
+      chart.removeSeries(series);
+    }
+  });
+  lineSeriesList = [];
 
-      if (!linesData || linesData.length === 0) {
-        console.log('ℹ️ Không có line nào để vẽ');
+  if (!linesData || linesData.length === 0 || !candleData || candleData.length === 0) {
+    return;
+  }
+
+  const firstTime = candleData[0].time;
+  const lastTime = candleData[candleData.length - 1].time;
+  const timeStep = 5 * 60;
+  const minWidth = LINE_MIN_WIDTH * timeStep;
+
+  let colorIndex = 0;
+  let lineCounter = 0;
+
+  linesData.forEach((line) => {
+    try {
+      let values = line.values;
+      if (typeof values === 'string') {
+        values = JSON.parse(values);
+      }
+      
+      if (!values || !Array.isArray(values) || values.length === 0) return;
+
+      const lineStartTime = parseInt(line.open_time) / 1000;
+      if (lineStartTime < firstTime - minWidth || lineStartTime > lastTime + minWidth) {
         return;
       }
 
-      // Tìm thời gian bắt đầu và kết thúc của chart
-      if (!candleData || candleData.length === 0) return;
+      const startX = Math.max(firstTime, lineStartTime - minWidth / 2);
+      const endX = Math.min(lastTime, lineStartTime + minWidth / 2);
 
-      const firstTime = candleData[0].time;
-      const lastTime = candleData[candleData.length - 1].time;
+      values.forEach((price) => {
+        if (price <= 0) return;
 
-      // Độ rộng tối thiểu 10 nến (tính bằng giây)
-      const timeStep = 5 * 60; // 5 phút = 300 giây
-      const minWidth = LINE_MIN_WIDTH * timeStep; // 10 * 300 = 3000 giây
+        lineCounter++;
+        
+        // ✅ Tên ngắn: Line 1, Line 2, Line 3...
+        const shortName = `Line ${lineCounter}`;
+        
+        const color = line.color || LINE_COLORS[colorIndex % LINE_COLORS.length];
+        colorIndex++;
 
-      let colorIndex = 0;
+        const series = chart.addLineSeries({
+          color: color,
+          lineWidth: line.line_width || 2,
+          lineStyle: line.line_style === 'dashed' ? 2 : (line.line_style === 'dotted' ? 3 : 0),
+          priceLineVisible: false,
+          lastValueVisible: true,
+          title: shortName,
+        });
 
-      linesData.forEach((line, index) => {
-        try {
-          // Parse values
-          let values = line.values;
-          if (typeof values === 'string') {
-            values = JSON.parse(values);
-          }
-          
-          if (!values || !Array.isArray(values) || values.length === 0) {
-            console.warn(`⚠️ Line ${line.id} không có values`);
-            return;
-          }
-
-          // Lấy open_time (thời điểm bắt đầu)
-          const lineStartTime = parseInt(line.open_time) / 1000; // Chuyển từ ms sang giây
-          
-          // Nếu open_time nằm ngoài phạm vi chart, bỏ qua
-          if (lineStartTime < firstTime - minWidth || lineStartTime > lastTime + minWidth) {
-            console.log(`⏭️ Bỏ qua line ${line.id}: open_time ${new Date(lineStartTime * 1000).toLocaleString()} nằm ngoài chart`);
-            return;
-          }
-
-          // Tạo dữ liệu cho line
-          const lineData = [];
-          const startX = Math.max(firstTime, lineStartTime - minWidth / 2);
-          const endX = Math.min(lastTime, lineStartTime + minWidth / 2);
-
-          // Mỗi giá trị trong values là một line ngang
-          values.forEach((price, idx) => {
-            if (price <= 0) return;
-
-            // Màu sắc cho line
-            const color = line.color || LINE_COLORS[colorIndex % LINE_COLORS.length];
-            colorIndex++;
-
-            // Tạo dữ liệu line ngang (2 điểm: đầu và cuối)
-            const linePoints = [
-              { time: startX, value: price },
-              { time: endX, value: price }
-            ];
-
-            // Tạo series line
-            const series = chart.addLineSeries({
-              color: color,
-              lineWidth: line.line_width || 2,
-              lineStyle: line.line_style === 'dashed' ? 2 : (line.line_style === 'dotted' ? 3 : 0),
-              priceLineVisible: false,
-              lastValueVisible: true,
-              title: line.line_name || `Line ${line.id}`,
-            });
-
-            series.setData(linePoints);
-            lineSeriesList.push(series);
-
-            console.log(`✅ Vẽ line ${line.id}: ${line.line_name || 'Line'} tại price=${price}, từ ${new Date(startX * 1000).toLocaleString()} đến ${new Date(endX * 1000).toLocaleString()}`);
-          });
-
-        } catch (error) {
-          console.error(`❌ Lỗi vẽ line ${line.id}:`, error);
-        }
+        series.setData([
+          { time: startX, value: price },
+          { time: endX, value: price }
+        ]);
+        
+        lineSeriesList.push(series);
       });
 
-      console.log(`📈 Đã vẽ ${lineSeriesList.length} line ngang`);
+    } catch (error) {
+      console.error(`❌ Lỗi vẽ line:`, error);
     }
-
+  });
+}
+   
+   
     // 🎨 Vẽ chart
     function drawChart(container, data, linesData) {
       if (chart) {
