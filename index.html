@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trading LightWebview Pro - Strapi Charts</title>
+  <title>Trading Light Webview Pro - Strapi Charts</title>
   
   <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
 
   <style>
+    /* ... Giữ nguyên CSS của bạn ... */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { 
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
@@ -184,6 +185,7 @@
       from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
       to { opacity: 1; transform: translateX(-50%) translateY(0); }
     }
+    /* Modal đăng nhập lại */
     .modal-overlay {
       position: fixed;
       top: 0;
@@ -244,6 +246,7 @@
     </div>
   </div>
 
+  <!-- Modal đăng nhập lại -->
   <div id="reLoginModal" class="modal-overlay hidden">
     <div class="modal-box">
       <h3>⏰ Phiên đăng nhập đã hết hạn</h3>
@@ -286,11 +289,13 @@
     let isRefreshing = false;
     let refreshCount = 0;
     let isReLoginModalOpen = false;
-    let lineSeriesList = [];
+    let lineSeriesList = []; // Lưu các series line để có thể xóa khi refresh
 
-    const REFRESH_INTERVAL = 10000;
+    const REFRESH_INTERVAL = 10000; // 10 giây
     const LINE_COLORS = ['#51CF66', '#FF6B6B', '#FFA94D', '#4DABF7', '#DA77F2', '#F06595', '#20C997', '#FFD43B', '#845EF7', '#2962FF'];
+    const LINE_MIN_WIDTH = 10; // Độ rộng tối thiểu 10 nến
 
+    // 📢 Hiển thị thông báo
     function showNotification(message, type = '') {
       const container = document.getElementById('chart-container');
       let noti = container.querySelector('.notification');
@@ -315,6 +320,7 @@
       }, 4000);
     }
 
+    // 🔐 Hiển thị modal đăng nhập lại
     function showReLoginModal(message = 'Phiên đăng nhập đã hết hạn') {
       if (isReLoginModalOpen) return;
       isReLoginModalOpen = true;
@@ -327,6 +333,7 @@
       document.getElementById('relogin-username').value = userInfo.email || userInfo.username || '';
     }
 
+    // 🔐 Xử lý đăng nhập lại
     async function handleReLogin() {
       const username = document.getElementById('relogin-username').value.trim();
       const password = document.getElementById('relogin-password').value.trim();
@@ -375,6 +382,7 @@
       }
     }
 
+    // 🔐 Kiểm tra và refresh token
     async function ensureValidToken() {
       let token = localStorage.getItem('jwt_token');
       
@@ -423,6 +431,7 @@
       return token;
     }
 
+    // ✅ Hàm fetch với xử lý 401
     async function fetchWithAuth(url, options = {}) {
       let token = await ensureValidToken();
       
@@ -473,6 +482,7 @@
       return response;
     }
 
+    // ✅ Hàm lấy toàn bộ dữ liệu candles
     async function fetchAllData(endpoint) {
       let allData = [];
       let page = 1;
@@ -531,6 +541,7 @@
       }
     }
 
+    // ✅ Hàm lấy dữ liệu lines
     async function fetchLinesData() {
       try {
         const endpoint = `${STRAPI_URL}/api/future-btcusdt-lines`;
@@ -552,6 +563,7 @@
           const result = await response.json();
 
           if (result.data && Array.isArray(result.data)) {
+            // Lọc chỉ lấy các line có status = Published
             const publishedLines = result.data.filter(item => item.status === 'Published' || !item.status);
             allLines = allLines.concat(publishedLines);
             console.log(`✅ Trang ${page}: đã lấy ${publishedLines.length} lines (tổng: ${allLines.length})`);
@@ -575,119 +587,105 @@
       }
     }
 
-    /**
-     * VẼ LINE NGANG
-     * Logic mới: Bắt đầu từ open_time_e, kéo dài sang bên phải với độ rộng = line_width
-     * open_time_e: timestamp (ms) - thời điểm bắt đầu line
-     * line_width: số nến (candles) kéo dài sang bên phải
-     */
-    function drawHorizontalLines(linesData, candleData) {
-      // Xóa các line cũ
-      lineSeriesList.forEach(series => {
-        if (chart) {
-          chart.removeSeries(series);
-        }
-      });
-      lineSeriesList = [];
+    // 🎨 Vẽ các line ngang
+   // 🎨 Vẽ các line ngang
+// 🎨 Vẽ các line ngang - ĐIỀU CHỈNH: bắt đầu từ open_time, kéo dài về bên phải 10 nến
+function drawHorizontalLines(linesData, candleData) {
+  // Xóa các line cũ
+  lineSeriesList.forEach(series => {
+    if (chart) {
+      chart.removeSeries(series);
+    }
+  });
+  lineSeriesList = [];
 
-      if (!linesData || linesData.length === 0) {
-        console.log('ℹ️ Không có line nào để vẽ');
+  if (!linesData || linesData.length === 0) {
+    console.log('ℹ️ Không có line nào để vẽ');
+    return;
+  }
+
+  if (!candleData || candleData.length === 0) return;
+
+  const firstTime = candleData[0].time;
+  const lastTime = candleData[candleData.length - 1].time;
+
+  // Tính khoảng thời gian của 10 nến (5 phút/nến)
+  const timeStep = 5 * 60; // 5 phút = 300 giây
+  const widthInSeconds = LINE_MIN_WIDTH * timeStep; // 10 nến * 300s = 3000s = 50 phút
+
+  let colorIndex = 0;
+  let lineCounter = 0;
+
+  linesData.forEach((line, index) => {
+    try {
+      let values = line.values;
+      if (typeof values === 'string') {
+        values = JSON.parse(values);
+      }
+      
+      if (!values || !Array.isArray(values) || values.length === 0) {
+        console.warn(`⚠️ Line ${line.id} không có values`);
         return;
       }
 
-      if (!candleData || candleData.length === 0) return;
+      // ✅ SỬA: Lấy open_time (không phải open_time_e)
+      const lineStartTime = parseInt(line.open_time) / 1000;
+      
+      // Kiểm tra xem line có nằm trong khung chart không
+      if (lineStartTime > lastTime + widthInSeconds) {
+        console.log(`⏭️ Bỏ qua line ${line.id}: nằm ngoài chart (quá xa về bên phải)`);
+        return;
+      }
 
-      // Lấy time của nến đầu và cuối
-      const firstTime = candleData[0].time;
-      const lastTime = candleData[candleData.length - 1].time;
+      // ✅ ĐIỀU CHỈNH: Bắt đầu từ open_time, kéo dài về bên phải 10 nến
+      const startX = Math.max(firstTime, lineStartTime);
+      const endX = Math.min(lastTime, lineStartTime + widthInSeconds);
 
-      // Mỗi nến 5 phút = 300 giây
-      const candleDuration = 300;
+      // Nếu line nằm hoàn toàn bên trái chart thì bỏ qua
+      if (endX < firstTime) {
+        console.log(`⏭️ Bỏ qua line ${line.id}: nằm bên trái chart`);
+        return;
+      }
 
-      let colorIndex = 0;
-      let lineCounter = 0;
+      // Vẽ từng giá trị trong values
+      values.forEach((price, idx) => {
+        if (price <= 0) return;
 
-      linesData.forEach((line, index) => {
-        try {
-          // Parse values
-          let values = line.values;
-          if (typeof values === 'string') {
-            values = JSON.parse(values);
-          }
-          
-          if (!values || !Array.isArray(values) || values.length === 0) {
-            console.warn(`⚠️ Line ${line.id} không có values`);
-            return;
-          }
+        lineCounter++;
+        const shortName = `L${lineCounter}`;
 
-          // Lấy open_time_e (thời điểm bắt đầu line)
-          const startTime = parseInt(line.open_time_e) / 1000;
-          
-          // Kiểm tra nếu startTime nằm trong khoảng chart
-          if (startTime > lastTime) {
-            console.log(`⏭️ Bỏ qua line ${line.id}: bắt đầu sau chart (${new Date(startTime*1000).toLocaleString()})`);
-            return;
-          }
+        const color = line.color || LINE_COLORS[colorIndex % LINE_COLORS.length];
+        colorIndex++;
 
-          // Độ rộng line (số nến) - mặc định 10 nến nếu không có
-          const widthCandles = parseInt(line.line_width) || 10;
-          // Tính thời gian kéo dài sang phải
-          const duration = widthCandles * candleDuration;
-          
-          // Điểm kết thúc: startTime + duration
-          const endTime = startTime + duration;
+        const linePoints = [
+          { time: startX, value: price },
+          { time: endX, value: price }
+        ];
 
-          // Giới hạn endTime không vượt quá lastTime
-          const actualEndTime = Math.min(endTime, lastTime);
+        const series = chart.addLineSeries({
+          color: color,
+          lineWidth: line.line_width || 2,
+          lineStyle: line.line_style === 'dashed' ? 2 : (line.line_style === 'dotted' ? 3 : 0),
+          priceLineVisible: false,
+          lastValueVisible: true,
+          title: shortName,
+        });
 
-          // Nếu endTime < firstTime thì bỏ qua
-          if (actualEndTime < firstTime) {
-            console.log(`⏭️ Bỏ qua line ${line.id}: kết thúc trước chart`);
-            return;
-          }
+        series.setData(linePoints);
+        lineSeriesList.push(series);
 
-          // Điểm bắt đầu thực tế (không nhỏ hơn firstTime)
-          const actualStartTime = Math.max(startTime, firstTime);
-
-          // Vẽ từng giá trị trong values
-          values.forEach((price, idx) => {
-            if (price <= 0) return;
-
-            lineCounter++;
-            const shortName = `L${lineCounter}`;
-
-            const color = line.color || LINE_COLORS[colorIndex % LINE_COLORS.length];
-            colorIndex++;
-
-            // Tạo 2 điểm: start và end
-            const linePoints = [
-              { time: actualStartTime, value: price },
-              { time: actualEndTime, value: price }
-            ];
-
-            const series = chart.addLineSeries({
-              color: color,
-              lineWidth: 2,
-              lineStyle: 0, // solid
-              priceLineVisible: false,
-              lastValueVisible: true,
-              title: shortName,
-            });
-
-            series.setData(linePoints);
-            lineSeriesList.push(series);
-
-            console.log(`✅ Vẽ ${shortName}: price=${price}, từ ${new Date(actualStartTime*1000).toLocaleString()} đến ${new Date(actualEndTime*1000).toLocaleString()}`);
-          });
-
-        } catch (error) {
-          console.error(`❌ Lỗi vẽ line ${line.id}:`, error);
-        }
+        console.log(`✅ Vẽ ${shortName}: price=${price} | từ ${new Date(startX*1000).toLocaleString()} đến ${new Date(endX*1000).toLocaleString()}`);
       });
 
-      console.log(`📈 Đã vẽ ${lineSeriesList.length} line ngang`);
+    } catch (error) {
+      console.error(`❌ Lỗi vẽ line ${line.id}:`, error);
     }
+  });
 
+  console.log(`📈 Đã vẽ ${lineSeriesList.length} line ngang`);
+}
+	
+    // 🎨 Vẽ chart
     function drawChart(container, data, linesData) {
       if (chart) {
         chart.remove();
@@ -727,6 +725,7 @@
 
       candlestickSeries.setData(data);
       
+      // Vẽ các line ngang
       if (linesData && linesData.length > 0) {
         drawHorizontalLines(linesData, data);
       }
@@ -736,6 +735,7 @@
       updateStatusBar('live', `${data.length} nến • ${lineSeriesList.length} lines • ${new Date().toLocaleTimeString()}`);
     }
 
+    // 📊 Cập nhật dữ liệu mới
     async function fetchNewCandles(lastTime) {
       try {
         const lastTimeMs = lastTime * 1000;
@@ -767,6 +767,7 @@
       }
     }
 
+    // 🔄 Cập nhật chart
     async function updateChartWithNewData() {
       if (isRefreshing) return;
       isRefreshing = true;
@@ -798,6 +799,7 @@
           lastCandleTime = newCandleData[newCandleData.length - 1].time;
 
           if (candlestickSeries) {
+            // Cập nhật lại toàn bộ chart (bao gồm lines)
             const container = document.getElementById('chart-container');
             const linesData = await fetchLinesData();
             drawChart(container, allCandleData, linesData);
@@ -821,6 +823,7 @@
       }
     }
 
+    // 📊 Cập nhật status bar
     function updateStatusBar(status, text) {
       const container = document.getElementById('chart-container');
       let statusBar = container.querySelector('.status-bar');
@@ -860,6 +863,7 @@
       console.log(`▶️ Auto-refresh mỗi ${REFRESH_INTERVAL/1000} giây`);
     }
 
+    // ============ PHẦN CHÍNH ============
     window.addEventListener('DOMContentLoaded', () => {
       const token = localStorage.getItem('jwt_token');
       const user = JSON.parse(localStorage.getItem('user_info') || '{}');
@@ -958,6 +962,7 @@
           return;
         }
 
+        // Lấy dữ liệu candles
         const candleEndpoint = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`;
         const rawCandleData = await fetchAllData(candleEndpoint);
 
@@ -965,6 +970,7 @@
           throw new Error('Không có dữ liệu nến');
         }
 
+        // Lấy dữ liệu lines
         const linesData = await fetchLinesData();
         console.log(`📈 Đã lấy ${linesData.length} lines`);
 
