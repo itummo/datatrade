@@ -8,6 +8,7 @@
   <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
 
   <style>
+    /* ... Giữ nguyên CSS của bạn ... */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { 
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
@@ -288,8 +289,11 @@
     let isRefreshing = false;
     let refreshCount = 0;
     let isReLoginModalOpen = false;
+    let lineSeriesList = []; // Lưu các series line để có thể xóa khi refresh
 
     const REFRESH_INTERVAL = 10000; // 10 giây
+    const LINE_COLORS = ['#51CF66', '#FF6B6B', '#FFA94D', '#4DABF7', '#DA77F2', '#F06595', '#20C997', '#FFD43B', '#845EF7', '#2962FF'];
+    const LINE_MIN_WIDTH = 10; // Độ rộng tối thiểu 10 nến
 
     // 📢 Hiển thị thông báo
     function showNotification(message, type = '') {
@@ -325,7 +329,6 @@
       modal.classList.remove('hidden');
       document.getElementById('relogin-msg').textContent = message;
       
-      // Tự động điền username nếu có
       const userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
       document.getElementById('relogin-username').value = userInfo.email || userInfo.username || '';
     }
@@ -360,7 +363,6 @@
           throw new Error(data.error?.message || 'Đăng nhập thất bại');
         }
 
-        // Lưu token mới
         localStorage.setItem('jwt_token', data.jwt);
         localStorage.setItem('user_info', JSON.stringify(data.user));
         localStorage.setItem('user_credentials', JSON.stringify({ identifier: username, password }));
@@ -368,11 +370,9 @@
         msgDiv.textContent = '✅ Đăng nhập thành công!';
         msgDiv.style.color = '#4caf50';
 
-        // Đóng modal
         setTimeout(() => {
           document.getElementById('reLoginModal').classList.add('hidden');
           isReLoginModalOpen = false;
-          // Refresh lại chart
           renderAdvancedChart();
         }, 1000);
 
@@ -392,17 +392,14 @@
         return null;
       }
 
-      // Kiểm tra token expiry
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
         const exp = payload.exp * 1000;
         const now = Date.now();
         
-        // Nếu token đã hết hạn
         if (exp < now) {
           console.log('⏰ Token đã hết hạn');
           
-          // Thử đăng nhập lại với credentials đã lưu
           const credentials = JSON.parse(localStorage.getItem('user_credentials') || 'null');
           if (credentials) {
             try {
@@ -424,7 +421,6 @@
             }
           }
           
-          // Nếu không thể tự động đăng nhập, hiển thị modal
           showReLoginModal('Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại');
           return null;
         }
@@ -451,7 +447,6 @@
 
       let response = await fetch(url, { ...options, headers });
 
-      // Nếu 401, thử đăng nhập lại và gọi lại 1 lần
       if (response.status === 401) {
         console.log('⚠️ Token không hợp lệ, thử đăng nhập lại...');
         
@@ -470,7 +465,6 @@
               localStorage.setItem('user_info', JSON.stringify(data.user));
               console.log('✅ Đăng nhập lại thành công, thử lại request');
               
-              // Thử lại request với token mới
               headers['Authorization'] = `Bearer ${data.jwt}`;
               response = await fetch(url, { ...options, headers });
             }
@@ -479,7 +473,6 @@
           }
         }
         
-        // Nếu vẫn 401, hiển thị modal
         if (response.status === 401) {
           showReLoginModal('Vui lòng đăng nhập lại để tiếp tục');
           throw new Error('Unauthorized');
@@ -489,7 +482,7 @@
       return response;
     }
 
-    // ✅ Hàm lấy toàn bộ dữ liệu
+    // ✅ Hàm lấy toàn bộ dữ liệu candles
     async function fetchAllData(endpoint) {
       let allData = [];
       let page = 1;
@@ -514,7 +507,7 @@
           
           if (page === 1 && result.meta?.pagination?.total) {
             totalItems = result.meta.pagination.total;
-            console.log(`📊 Tổng số bản ghi: ${totalItems}`);
+            console.log(`📊 Tổng số bản ghi candles: ${totalItems}`);
           }
 
           if (result.data && Array.isArray(result.data)) {
@@ -539,20 +532,159 @@
           progress.style.width = '0%';
         }, 500);
 
-        console.log(`🎯 Hoàn thành! Tổng cộng ${allData.length} bản ghi`);
+        console.log(`🎯 Hoàn thành! Tổng cộng ${allData.length} bản ghi candles`);
         return allData;
 
       } catch (error) {
-        console.error('❌ Lỗi khi tải dữ liệu:', error);
+        console.error('❌ Lỗi khi tải dữ liệu candles:', error);
         throw error;
       }
     }
 
+    // ✅ Hàm lấy dữ liệu lines
+    async function fetchLinesData() {
+      try {
+        const endpoint = `${STRAPI_URL}/api/future-btcusdt-lines`;
+        let allLines = [];
+        let page = 1;
+        const pageSize = 100;
+        let hasMore = true;
+
+        console.log('📥 Đang tải dữ liệu lines...');
+
+        while (hasMore) {
+          const url = `${endpoint}?pagination[page]=${page}&pagination[pageSize]=${pageSize}&sort=open_time:asc`;
+          const response = await fetchWithAuth(url);
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const result = await response.json();
+
+          if (result.data && Array.isArray(result.data)) {
+            // Lọc chỉ lấy các line có status = Published
+            const publishedLines = result.data.filter(item => item.status === 'Published' || !item.status);
+            allLines = allLines.concat(publishedLines);
+            console.log(`✅ Trang ${page}: đã lấy ${publishedLines.length} lines (tổng: ${allLines.length})`);
+          }
+
+          if (result.meta?.pagination?.pageCount) {
+            const totalPages = result.meta.pagination.pageCount;
+            hasMore = page < totalPages;
+            page++;
+          } else {
+            hasMore = false;
+          }
+        }
+
+        console.log(`🎯 Hoàn thành! Tổng cộng ${allLines.length} lines`);
+        return allLines;
+
+      } catch (error) {
+        console.error('❌ Lỗi khi tải dữ liệu lines:', error);
+        return [];
+      }
+    }
+
+    // 🎨 Vẽ các line ngang
+    function drawHorizontalLines(linesData, candleData) {
+      // Xóa các line cũ
+      lineSeriesList.forEach(series => {
+        if (chart) {
+          chart.removeSeries(series);
+        }
+      });
+      lineSeriesList = [];
+
+      if (!linesData || linesData.length === 0) {
+        console.log('ℹ️ Không có line nào để vẽ');
+        return;
+      }
+
+      // Tìm thời gian bắt đầu và kết thúc của chart
+      if (!candleData || candleData.length === 0) return;
+
+      const firstTime = candleData[0].time;
+      const lastTime = candleData[candleData.length - 1].time;
+
+      // Độ rộng tối thiểu 10 nến (tính bằng giây)
+      const timeStep = 5 * 60; // 5 phút = 300 giây
+      const minWidth = LINE_MIN_WIDTH * timeStep; // 10 * 300 = 3000 giây
+
+      let colorIndex = 0;
+
+      linesData.forEach((line, index) => {
+        try {
+          // Parse values
+          let values = line.values;
+          if (typeof values === 'string') {
+            values = JSON.parse(values);
+          }
+          
+          if (!values || !Array.isArray(values) || values.length === 0) {
+            console.warn(`⚠️ Line ${line.id} không có values`);
+            return;
+          }
+
+          // Lấy open_time (thời điểm bắt đầu)
+          const lineStartTime = parseInt(line.open_time) / 1000; // Chuyển từ ms sang giây
+          
+          // Nếu open_time nằm ngoài phạm vi chart, bỏ qua
+          if (lineStartTime < firstTime - minWidth || lineStartTime > lastTime + minWidth) {
+            console.log(`⏭️ Bỏ qua line ${line.id}: open_time ${new Date(lineStartTime * 1000).toLocaleString()} nằm ngoài chart`);
+            return;
+          }
+
+          // Tạo dữ liệu cho line
+          const lineData = [];
+          const startX = Math.max(firstTime, lineStartTime - minWidth / 2);
+          const endX = Math.min(lastTime, lineStartTime + minWidth / 2);
+
+          // Mỗi giá trị trong values là một line ngang
+          values.forEach((price, idx) => {
+            if (price <= 0) return;
+
+            // Màu sắc cho line
+            const color = line.color || LINE_COLORS[colorIndex % LINE_COLORS.length];
+            colorIndex++;
+
+            // Tạo dữ liệu line ngang (2 điểm: đầu và cuối)
+            const linePoints = [
+              { time: startX, value: price },
+              { time: endX, value: price }
+            ];
+
+            // Tạo series line
+            const series = chart.addLineSeries({
+              color: color,
+              lineWidth: line.line_width || 2,
+              lineStyle: line.line_style === 'dashed' ? 2 : (line.line_style === 'dotted' ? 3 : 0),
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: line.line_name || `Line ${line.id}`,
+            });
+
+            series.setData(linePoints);
+            lineSeriesList.push(series);
+
+            console.log(`✅ Vẽ line ${line.id}: ${line.line_name || 'Line'} tại price=${price}, từ ${new Date(startX * 1000).toLocaleString()} đến ${new Date(endX * 1000).toLocaleString()}`);
+          });
+
+        } catch (error) {
+          console.error(`❌ Lỗi vẽ line ${line.id}:`, error);
+        }
+      });
+
+      console.log(`📈 Đã vẽ ${lineSeriesList.length} line ngang`);
+    }
+
     // 🎨 Vẽ chart
-    function drawChart(container, data) {
+    function drawChart(container, data, linesData) {
       if (chart) {
         chart.remove();
         chart = null;
+        lineSeriesList = [];
       }
 
       chart = LightweightCharts.createChart(container, {
@@ -586,9 +718,15 @@
       });
 
       candlestickSeries.setData(data);
+      
+      // Vẽ các line ngang
+      if (linesData && linesData.length > 0) {
+        drawHorizontalLines(linesData, data);
+      }
+
       chart.timeScale().fitContent();
 
-      updateStatusBar('live', `${data.length} nến • Cập nhật: ${new Date().toLocaleTimeString()}`);
+      updateStatusBar('live', `${data.length} nến • ${lineSeriesList.length} lines • ${new Date().toLocaleTimeString()}`);
     }
 
     // 📊 Cập nhật dữ liệu mới
@@ -655,14 +793,16 @@
           lastCandleTime = newCandleData[newCandleData.length - 1].time;
 
           if (candlestickSeries) {
-            candlestickSeries.setData(allCandleData);
-            chart.timeScale().fitContent();
+            // Cập nhật lại toàn bộ chart (bao gồm lines)
+            const container = document.getElementById('chart-container');
+            const linesData = await fetchLinesData();
+            drawChart(container, allCandleData, linesData);
             
             updateStatusBar('live', `✅ ${allCandleData.length} nến • +${newCandleData.length} mới • ${new Date().toLocaleTimeString()}`);
             showNotification(`📊 Có ${newCandleData.length} nến mới!`, 'success');
           }
         } else {
-          updateStatusBar('live', `${allCandleData.length} nến • Không có mới • ${new Date().toLocaleTimeString()}`);
+          updateStatusBar('live', `${allCandleData.length} nến • ${lineSeriesList.length} lines • Không có mới • ${new Date().toLocaleTimeString()}`);
         }
 
       } catch (error) {
@@ -699,7 +839,7 @@
 
     window.manualRefresh = function() {
       console.log('🔄 Manual refresh');
-      updateChartWithNewData();
+      renderAdvancedChart();
     };
 
     function stopAutoRefresh() {
@@ -764,7 +904,6 @@
           throw new Error(data.error?.message || 'Đăng nhập thất bại!');
         }
 
-        // Lưu credentials để tự động đăng nhập lại
         localStorage.setItem('user_credentials', JSON.stringify({ 
           identifier: email || username, 
           password: password 
@@ -817,16 +956,21 @@
           return;
         }
 
-        const endpoint = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`;
-        const rawData = await fetchAllData(endpoint);
+        // Lấy dữ liệu candles
+        const candleEndpoint = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`;
+        const rawCandleData = await fetchAllData(candleEndpoint);
 
-        if (!rawData || rawData.length === 0) {
+        if (!rawCandleData || rawCandleData.length === 0) {
           throw new Error('Không có dữ liệu nến');
         }
 
+        // Lấy dữ liệu lines
+        const linesData = await fetchLinesData();
+        console.log(`📈 Đã lấy ${linesData.length} lines`);
+
         container.innerHTML = '';
 
-        allCandleData = rawData.map(item => ({
+        allCandleData = rawCandleData.map(item => ({
           time: Math.floor(parseInt(item.open_time) / 1000),
           open: parseFloat(item.open_ashi),
           high: parseFloat(item.high_ashi),
@@ -839,8 +983,9 @@
 
         console.log(`✅ Đã xử lý ${allCandleData.length} nến`);
         console.log(`📅 Nến cuối cùng: ${new Date(lastCandleTime * 1000).toLocaleString()}`);
+        console.log(`📈 Vẽ ${linesData.length} lines`);
 
-        drawChart(container, allCandleData);
+        drawChart(container, allCandleData, linesData);
         startAutoRefresh();
 
       } catch (err) {
