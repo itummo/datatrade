@@ -589,7 +589,7 @@
 
     // 🎨 Vẽ các line ngang
    // 🎨 Vẽ các line ngang
-// 🎨 Vẽ các line ngang - ĐIỀU CHỈNH: bắt đầu từ open_time, kéo dài về bên phải 10 nến
+	// 🎨 Vẽ các line ngang
 function drawHorizontalLines(linesData, candleData) {
   // Xóa các line cũ
   lineSeriesList.forEach(series => {
@@ -609,12 +609,11 @@ function drawHorizontalLines(linesData, candleData) {
   const firstTime = candleData[0].time;
   const lastTime = candleData[candleData.length - 1].time;
 
-  // Tính khoảng thời gian của 10 nến (5 phút/nến)
   const timeStep = 5 * 60; // 5 phút = 300 giây
-  const widthInSeconds = LINE_MIN_WIDTH * timeStep; // 10 nến * 300s = 3000s = 50 phút
+  const minWidth = LINE_MIN_WIDTH * timeStep;
 
   let colorIndex = 0;
-  let lineCounter = 0;
+  let lineCounter = 0; // ✅ Biến đếm số line
 
   linesData.forEach((line, index) => {
     try {
@@ -628,30 +627,23 @@ function drawHorizontalLines(linesData, candleData) {
         return;
       }
 
-      // ✅ SỬA: Lấy open_time (không phải open_time_e)
       const lineStartTime = parseInt(line.open_time) / 1000;
       
-      // Kiểm tra xem line có nằm trong khung chart không
-      if (lineStartTime > lastTime + widthInSeconds) {
-        console.log(`⏭️ Bỏ qua line ${line.id}: nằm ngoài chart (quá xa về bên phải)`);
+      if (lineStartTime < firstTime - minWidth || lineStartTime > lastTime + minWidth) {
+        console.log(`⏭️ Bỏ qua line ${line.id}: nằm ngoài chart`);
         return;
       }
 
-      // ✅ ĐIỀU CHỈNH: Bắt đầu từ open_time, kéo dài về bên phải 10 nến
-      const startX = Math.max(firstTime, lineStartTime);
-      const endX = Math.min(lastTime, lineStartTime + widthInSeconds);
+      const startX = Math.max(firstTime, lineStartTime - minWidth / 2);
+      const endX = Math.min(lastTime, lineStartTime + minWidth / 2);
 
-      // Nếu line nằm hoàn toàn bên trái chart thì bỏ qua
-      if (endX < firstTime) {
-        console.log(`⏭️ Bỏ qua line ${line.id}: nằm bên trái chart`);
-        return;
-      }
-
-      // Vẽ từng giá trị trong values
+      // ✅ Vẽ từng giá trị trong values
       values.forEach((price, idx) => {
         if (price <= 0) return;
 
-        lineCounter++;
+        lineCounter++; // ✅ Tăng biến đếm
+
+        // ✅ Tên ngắn: L1, L2, L3...
         const shortName = `L${lineCounter}`;
 
         const color = line.color || LINE_COLORS[colorIndex % LINE_COLORS.length];
@@ -668,13 +660,13 @@ function drawHorizontalLines(linesData, candleData) {
           lineStyle: line.line_style === 'dashed' ? 2 : (line.line_style === 'dotted' ? 3 : 0),
           priceLineVisible: false,
           lastValueVisible: true,
-          title: shortName,
+          title: shortName, // ✅ L1, L2, L3...
         });
 
         series.setData(linePoints);
         lineSeriesList.push(series);
 
-        console.log(`✅ Vẽ ${shortName}: price=${price} | từ ${new Date(startX*1000).toLocaleString()} đến ${new Date(endX*1000).toLocaleString()}`);
+        console.log(`✅ Vẽ ${shortName}: price=${price}`);
       });
 
     } catch (error) {
