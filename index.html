@@ -8,7 +8,6 @@
   <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
 
   <style>
-    /* ... Giữ nguyên CSS của bạn ... */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { 
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
@@ -185,7 +184,6 @@
       from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
       to { opacity: 1; transform: translateX(-50%) translateY(0); }
     }
-    /* Modal đăng nhập lại */
     .modal-overlay {
       position: fixed;
       top: 0;
@@ -246,7 +244,6 @@
     </div>
   </div>
 
-  <!-- Modal đăng nhập lại -->
   <div id="reLoginModal" class="modal-overlay hidden">
     <div class="modal-box">
       <h3>⏰ Phiên đăng nhập đã hết hạn</h3>
@@ -289,11 +286,10 @@
     let isRefreshing = false;
     let refreshCount = 0;
     let isReLoginModalOpen = false;
-    let lineSeriesList = []; // Lưu các series line để có thể xóa khi refresh
+    let lineSeriesList = [];
 
-    const REFRESH_INTERVAL = 10000; // 10 giây
+    const REFRESH_INTERVAL = 10000;
     const LINE_COLORS = ['#51CF66', '#FF6B6B', '#FFA94D', '#4DABF7', '#DA77F2', '#F06595', '#20C997', '#FFD43B', '#845EF7', '#2962FF'];
-    const LINE_MIN_WIDTH = 10; // Độ rộng tối thiểu 10 nến
 
     // 📢 Hiển thị thông báo
     function showNotification(message, type = '') {
@@ -483,7 +479,7 @@
     }
 
     // ✅ Hàm lấy toàn bộ dữ liệu candles
-    async function fetchAllData(endpoint) {
+    async function fetchAllCandles(endpoint) {
       let allData = [];
       let page = 1;
       const pageSize = 100;
@@ -541,10 +537,10 @@
       }
     }
 
-    // ✅ Hàm lấy dữ liệu lines
+    // ✅ Hàm lấy dữ liệu lines từ future-line-ashis
     async function fetchLinesData() {
       try {
-        const endpoint = `${STRAPI_URL}/api/future-btcusdt-lines`;
+        const endpoint = `${STRAPI_URL}/api/future-line-ashis`;
         let allLines = [];
         let page = 1;
         const pageSize = 100;
@@ -563,10 +559,8 @@
           const result = await response.json();
 
           if (result.data && Array.isArray(result.data)) {
-            // Lọc chỉ lấy các line có status = Published
-            const publishedLines = result.data.filter(item => item.status === 'Published' || !item.status);
-            allLines = allLines.concat(publishedLines);
-            console.log(`✅ Trang ${page}: đã lấy ${publishedLines.length} lines (tổng: ${allLines.length})`);
+            allLines = allLines.concat(result.data);
+            console.log(`✅ Trang ${page}: đã lấy ${result.data.length} lines (tổng: ${allLines.length})`);
           }
 
           if (result.meta?.pagination?.pageCount) {
@@ -587,96 +581,110 @@
       }
     }
 
-    // 🎨 Vẽ các line ngang
-   // 🎨 Vẽ các line ngang
-	// 🎨 Vẽ các line ngang
-function drawHorizontalLines(linesData, candleData) {
-  // Xóa các line cũ
-  lineSeriesList.forEach(series => {
-    if (chart) {
-      chart.removeSeries(series);
-    }
-  });
-  lineSeriesList = [];
+    // 🎨 Vẽ các line kháng cự/hỗ trợ - KÉO DÀI TỪ OPEN_TIME ĐẾN HẾT BÊN PHẢI
+    function drawHorizontalLines(linesData, candleData) {
+      // Xóa các line cũ
+      lineSeriesList.forEach(series => {
+        if (chart) {
+          chart.removeSeries(series);
+        }
+      });
+      lineSeriesList = [];
 
-  if (!linesData || linesData.length === 0) {
-    console.log('ℹ️ Không có line nào để vẽ');
-    return;
-  }
-
-  if (!candleData || candleData.length === 0) return;
-
-  const firstTime = candleData[0].time;
-  const lastTime = candleData[candleData.length - 1].time;
-
-  const timeStep = 5 * 60; // 5 phút = 300 giây
-  const minWidth = LINE_MIN_WIDTH * timeStep;
-
-  let colorIndex = 0;
-  let lineCounter = 0; // ✅ Biến đếm số line
-
-  linesData.forEach((line, index) => {
-    try {
-      let values = line.values;
-      if (typeof values === 'string') {
-        values = JSON.parse(values);
-      }
-      
-      if (!values || !Array.isArray(values) || values.length === 0) {
-        console.warn(`⚠️ Line ${line.id} không có values`);
+      if (!linesData || linesData.length === 0) {
+        console.log('ℹ️ Không có line nào để vẽ');
         return;
       }
 
-      const lineStartTime = parseInt(line.open_time) / 1000;
-      
-      if (lineStartTime < firstTime - minWidth || lineStartTime > lastTime + minWidth) {
-        console.log(`⏭️ Bỏ qua line ${line.id}: nằm ngoài chart`);
-        return;
-      }
+      if (!candleData || candleData.length === 0) return;
 
-      const startX = Math.max(firstTime, lineStartTime - minWidth / 2);
-      const endX = Math.min(lastTime, lineStartTime + minWidth / 2);
+      const firstTime = candleData[0].time;
+      const lastTime = candleData[candleData.length - 1].time;
 
-      // ✅ Vẽ từng giá trị trong values
-      values.forEach((price, idx) => {
-        if (price <= 0) return;
+      let colorIndex = 0;
+      let lineCounter = 0;
 
-        lineCounter++; // ✅ Tăng biến đếm
+      linesData.forEach((line, index) => {
+        try {
+          // Parse values từ JSON
+          let values = line.values;
+          if (typeof values === 'string') {
+            values = JSON.parse(values);
+          }
+          
+          if (!values || !Array.isArray(values) || values.length === 0) {
+            console.warn(`⚠️ Line ${line.id} không có values`);
+            return;
+          }
 
-        // ✅ Tên ngắn: L1, L2, L3...
-        const shortName = `L${lineCounter}`;
+          // Lấy open_time của line (timestamp milliseconds)
+          const lineStartTime = parseInt(line.open_time) / 1000;
+          
+          // Nếu open_time nằm trước nến đầu tiên hoặc sau nến cuối cùng
+          // thì vẫn vẽ từ open_time đến hết chart
+          let startX = lineStartTime;
+          let endX = lastTime + 300; // Kéo dài thêm 5 phút về bên phải
 
-        const color = line.color || LINE_COLORS[colorIndex % LINE_COLORS.length];
-        colorIndex++;
+          // Nếu lineStartTime nằm sau nến cuối cùng, vẫn vẽ từ open_time đến hết
+          if (lineStartTime > lastTime) {
+            startX = lineStartTime;
+            endX = lineStartTime + 300; // Vẽ thêm 5 phút
+          }
 
-        const linePoints = [
-          { time: startX, value: price },
-          { time: endX, value: price }
-        ];
+          // Nếu lineStartTime nằm trước nến đầu tiên
+          if (lineStartTime < firstTime) {
+            startX = firstTime;
+            endX = lastTime + 300;
+          }
 
-        const series = chart.addLineSeries({
-          color: color,
-          lineWidth: line.line_width || 2,
-          lineStyle: line.line_style === 'dashed' ? 2 : (line.line_style === 'dotted' ? 3 : 0),
-          priceLineVisible: false,
-          lastValueVisible: true,
-          title: shortName, // ✅ L1, L2, L3...
-        });
+          // Màu sắc
+          const color = line.color || LINE_COLORS[colorIndex % LINE_COLORS.length];
+          colorIndex++;
 
-        series.setData(linePoints);
-        lineSeriesList.push(series);
+          // Line style
+          let lineStyle = 0; // solid
+          if (line.line_style === 'dashed') lineStyle = 2;
+          else if (line.line_style === 'dotted') lineStyle = 3;
 
-        console.log(`✅ Vẽ ${shortName}: price=${price}`);
+          const lineWidth = line.line_width || 2;
+
+          // Vẽ từng giá trị trong values (mỗi giá trị là 1 line ngang)
+          values.forEach((price, idx) => {
+            if (price <= 0) return;
+
+            lineCounter++;
+
+            // Tên hiển thị: L1, L2, L3...
+            const shortName = `L${lineCounter}`;
+
+            const linePoints = [
+              { time: startX, value: price },
+              { time: endX, value: price }
+            ];
+
+            const series = chart.addLineSeries({
+              color: color,
+              lineWidth: lineWidth,
+              lineStyle: lineStyle,
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: shortName,
+            });
+
+            series.setData(linePoints);
+            lineSeriesList.push(series);
+
+            console.log(`✅ Vẽ ${shortName}: price=${price} | từ ${new Date(startX * 1000).toLocaleString()} đến ${new Date(endX * 1000).toLocaleString()}`);
+          });
+
+        } catch (error) {
+          console.error(`❌ Lỗi vẽ line ${line.id}:`, error);
+        }
       });
 
-    } catch (error) {
-      console.error(`❌ Lỗi vẽ line ${line.id}:`, error);
+      console.log(`📈 Đã vẽ ${lineSeriesList.length} line ngang`);
     }
-  });
 
-  console.log(`📈 Đã vẽ ${lineSeriesList.length} line ngang`);
-}
-	
     // 🎨 Vẽ chart
     function drawChart(container, data, linesData) {
       if (chart) {
@@ -956,13 +964,13 @@ function drawHorizontalLines(linesData, candleData) {
 
         // Lấy dữ liệu candles
         const candleEndpoint = `${STRAPI_URL}/api/future-btcusdt-lastcandle-5ms`;
-        const rawCandleData = await fetchAllData(candleEndpoint);
+        const rawCandleData = await fetchAllCandles(candleEndpoint);
 
         if (!rawCandleData || rawCandleData.length === 0) {
           throw new Error('Không có dữ liệu nến');
         }
 
-        // Lấy dữ liệu lines
+        // Lấy dữ liệu lines từ future-line-ashis
         const linesData = await fetchLinesData();
         console.log(`📈 Đã lấy ${linesData.length} lines`);
 
@@ -1014,6 +1022,7 @@ function drawHorizontalLines(linesData, candleData) {
 
     console.log('🚀 Trading LightWebview đã sẵn sàng!');
     console.log(`⏱️ Auto-refresh mỗi ${REFRESH_INTERVAL/1000} giây`);
+    console.log('📈 Đã hỗ trợ vẽ line kháng cự/hỗ trợ từ API future-line-ashis');
   </script>
 </body>
 </html>
